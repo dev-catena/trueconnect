@@ -1,0 +1,23 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- Torre/Castelo simplificada -->
+  <g id="tower">
+    <!-- Base da torre -->
+    <rect x="12" y="18" width="8" height="6" fill="#1e3a8a" stroke="#1e3a8a" stroke-width="0.5"/>
+    
+    <!-- Crenelações no topo -->
+    <rect x="12" y="14" width="8" height="4" fill="#1e3a8a" stroke="#1e3a8a" stroke-width="0.5"/>
+    <rect x="13" y="14" width="1" height="4" fill="#ffffff"/>
+    <rect x="15" y="14" width="1" height="4" fill="#ffffff"/>
+    <rect x="17" y="14" width="1" height="4" fill="#ffffff"/>
+    <rect x="19" y="14" width="1" height="4" fill="#ffffff"/>
+    
+    <!-- Ondas/Água simplificadas -->
+    <path d="M 8 24 Q 10 22 12 24 Q 14 26 16 24 Q 18 22 20 24 Q 22 26 24 24" 
+          stroke="#1e3a8a" stroke-width="1" fill="none"/>
+  </g>
+  
+  <!-- Texto "C" para Consentir -->
+  <text x="16" y="8" text-anchor="middle" font-family="Arial, sans-serif" font-size="6" font-weight="bold" fill="#1e3a8a">
+    C
+  </text>
+</svg> 

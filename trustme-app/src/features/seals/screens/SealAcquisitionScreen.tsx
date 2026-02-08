@@ -1,0 +1,612 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { HomeStackParamList } from '../../../types/navigation';
+import { CustomColors } from '../../../core/colors';
+import ApiProvider from '../../../core/api/ApiProvider';
+import SafeIcon from '../../../components/SafeIcon';
+
+type SealAcquisitionScreenRouteProp = RouteProp<HomeStackParamList, 'SealAcquisition'>;
+type SealAcquisitionScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'SealAcquisition'>;
+
+interface FileUpload {
+  uri: string;
+  type: string;
+  name: string;
+  isImage: boolean;
+}
+
+const SealAcquisitionScreen: React.FC = () => {
+  const navigation = useNavigation<SealAcquisitionScreenNavigationProp>();
+  const route = useRoute<SealAcquisitionScreenRouteProp>();
+  const { selo } = route.params;
+
+  // Obter documentos necessários do selo (memoizado para evitar recriações)
+  const requiredDocuments = React.useMemo(() => {
+    return selo.documentos_evidencias && selo.documentos_evidencias.length > 0
+      ? selo.documentos_evidencias
+      : ['Frente', 'Trás']; // Fallback para compatibilidade
+  }, [selo.documentos_evidencias]);
+
+  // Estado dinâmico para armazenar arquivos (imagens ou PDFs) por documento
+  const [documentFiles, setDocumentFiles] = useState<Record<string, FileUpload | null>>({});
+  const [uploading, setUploading] = useState(false);
+
+  // Inicializar estado vazio para cada documento
+  useEffect(() => {
+    const initialFiles: Record<string, FileUpload | null> = {};
+    requiredDocuments.forEach((doc) => {
+      initialFiles[doc] = null;
+    });
+    setDocumentFiles(initialFiles);
+  }, [requiredDocuments]); // Dependência estável (memoizada)
+
+  const requestPermissions = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (__DEV__) {
+        console.log('📸 Status da permissão:', status);
+      }
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permissão necessária', 
+          'Precisamos de permissão para acessar suas fotos. Por favor, permita o acesso nas configurações do aplicativo.',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Abrir Configurações', onPress: () => {
+              // Em produção, você pode usar Linking.openSettings() se necessário
+              if (__DEV__) {
+                console.log('Abrir configurações do app');
+              }
+            }}
+          ]
+        );
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error('Erro ao solicitar permissão:', error);
+      Alert.alert('Erro', 'Não foi possível solicitar permissão para acessar as fotos.');
+      return false;
+    }
+  };
+
+  const pickFile = async (documentName: string, fileType: 'image' | 'pdf') => {
+    try {
+      if (__DEV__) {
+        console.log(`📄 Iniciando seleção de arquivo: ${documentName} (tipo: ${fileType})`);
+      }
+
+      if (fileType === 'image') {
+        const hasPermission = await requestPermissions();
+        if (!hasPermission) {
+          if (__DEV__) {
+            console.log('❌ Permissão negada');
+          }
+          return;
+        }
+
+        if (__DEV__) {
+          console.log('📸 Abrindo seletor de imagens...');
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.8,
+        });
+
+        if (__DEV__) {
+          console.log('📸 Resultado do ImagePicker:', {
+            canceled: result.canceled,
+            hasAssets: result.assets && result.assets.length > 0,
+          });
+        }
+
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          const imageUri = asset.uri;
+          const fileName = imageUri.split('/').pop() || `image_${Date.now()}.jpg`;
+          const match = /\.(\w+)$/.exec(fileName);
+          const mimeType = match ? `image/${match[1]}` : 'image/jpeg';
+
+          const fileData: FileUpload = {
+            uri: imageUri,
+            type: mimeType,
+            name: fileName,
+            isImage: true,
+          };
+
+          if (__DEV__) {
+            console.log('✅ Imagem selecionada:', {
+              document: documentName,
+              uri: imageUri.substring(0, 50) + '...',
+              name: fileName,
+              mimeType,
+            });
+          }
+
+          setDocumentFiles(prev => ({
+            ...prev,
+            [documentName]: fileData
+          }));
+        } else {
+          if (__DEV__) {
+            console.log('ℹ️ Seleção de imagem cancelada pelo usuário');
+          }
+        }
+      } else {
+        // Selecionar PDF
+        if (__DEV__) {
+          console.log('📄 Abrindo seletor de documentos...');
+        }
+
+        const result = await DocumentPicker.getDocumentAsync({
+          type: 'application/pdf',
+          copyToCacheDirectory: true,
+        });
+
+        if (__DEV__) {
+          console.log('📄 Resultado completo do DocumentPicker:', JSON.stringify(result, null, 2));
+          console.log('📄 Resultado do DocumentPicker:', {
+            canceled: result.canceled,
+            hasFile: !!result.file,
+            resultType: result.type,
+            assets: result.assets,
+          });
+        }
+
+        // Verificar diferentes estruturas de retorno
+        let selectedFile: any = null;
+        
+        if (!result.canceled) {
+          // Versão mais recente pode retornar assets[]
+          if (result.assets && result.assets.length > 0) {
+            selectedFile = result.assets[0];
+          } 
+          // Versão antiga retorna file diretamente
+          else if (result.file) {
+            selectedFile = result.file;
+          }
+        }
+
+        if (selectedFile) {
+          const fileData: FileUpload = {
+            uri: selectedFile.uri || selectedFile.fileUri,
+            type: selectedFile.mimeType || selectedFile.mime || 'application/pdf',
+            name: selectedFile.name || selectedFile.fileName || `documento_${Date.now()}.pdf`,
+            isImage: false,
+          };
+
+          if (__DEV__) {
+            console.log('✅ PDF selecionado e processado:', {
+              document: documentName,
+              fileData: fileData,
+              uri: fileData.uri.substring(0, 50) + '...',
+              name: fileData.name,
+              type: fileData.type,
+            });
+          }
+
+          setDocumentFiles(prev => {
+            const updated = {
+              ...prev,
+              [documentName]: fileData
+            };
+            if (__DEV__) {
+              console.log('📝 Estado atualizado:', {
+                documentName,
+                hasFile: !!updated[documentName],
+                allFiles: Object.keys(updated),
+              });
+            }
+            return updated;
+          });
+        } else {
+          if (__DEV__) {
+            console.log('ℹ️ Seleção de documento cancelada ou arquivo não encontrado');
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error(`❌ Erro ao selecionar ${fileType === 'image' ? 'imagem' : 'documento'}:`, error);
+      Alert.alert(
+        'Erro', 
+        `Não foi possível abrir o seletor de ${fileType === 'image' ? 'imagens' : 'documentos'}. Por favor, tente novamente.`,
+        [{ text: 'OK' }]
+      );
+    }
+  };
+
+  const showFileTypePicker = (documentName: string) => {
+    Alert.alert(
+      'Selecionar arquivo',
+      'Escolha o tipo de arquivo que deseja enviar:',
+      [
+        {
+          text: 'Imagem',
+          onPress: () => pickFile(documentName, 'image'),
+        },
+        {
+          text: 'PDF',
+          onPress: () => pickFile(documentName, 'pdf'),
+        },
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  const removeFile = (documentName: string) => {
+    setDocumentFiles(prev => ({
+      ...prev,
+      [documentName]: null
+    }));
+  };
+
+  const handleContinue = async () => {
+    // Verificar se todos os documentos foram enviados
+    const missingDocuments: string[] = [];
+    requiredDocuments.forEach((doc) => {
+      if (!documentFiles[doc]) {
+        missingDocuments.push(doc);
+      }
+    });
+
+    if (missingDocuments.length > 0) {
+      Alert.alert(
+        'Atenção',
+        `Por favor, faça o upload dos seguintes documentos:\n${missingDocuments.join('\n')}`
+      );
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      const api = new ApiProvider();
+      
+      // Criar FormData para upload
+      const formData = new FormData();
+      formData.append('selo_id', selo.id.toString());
+      
+      // Adicionar cada documento ao FormData
+      requiredDocuments.forEach((docName) => {
+        const file = documentFiles[docName];
+        if (file) {
+          // Normalizar nome do documento para o backend
+          // Se for "Frente" ou "Trás", usar os nomes originais para compatibilidade
+          const fieldName = docName.toLowerCase() === 'frente' ? 'frente' 
+            : docName.toLowerCase() === 'trás' || docName.toLowerCase() === 'tras' ? 'tras'
+            : docName.toLowerCase().replace(/\s+/g, '_'); // Substituir espaços por underscore
+          
+          const fileName = file.name || `${fieldName}_${Date.now()}.${file.isImage ? 'jpg' : 'pdf'}`;
+          
+          formData.append(fieldName, {
+            uri: file.uri,
+            type: file.type || (file.isImage ? 'image/jpeg' : 'application/pdf'),
+            name: fileName,
+          } as any);
+        }
+      });
+      
+      if (__DEV__) {
+        console.log('📤 FormData criado:', {
+          selo_id: selo.id,
+          documents: requiredDocuments.map(doc => ({
+            name: doc,
+            hasFile: !!documentFiles[doc]
+          }))
+        });
+      }
+
+      // Fazer upload dos documentos
+      // Não definir Content-Type manualmente - axios faz isso automaticamente para FormData
+      const response = await api.post('selos/solicitar', formData);
+
+      if (response.success) {
+        // Navegar para tela de pagamento
+        navigation.navigate('Payment', {
+          selo,
+          requestId: response.data?.id || response.data?.request_id,
+        });
+      } else {
+        Alert.alert('Erro', response.message || 'Não foi possível processar a solicitação.');
+      }
+    } catch (error: any) {
+      console.error('Erro ao solicitar selo:', error);
+      Alert.alert('Erro', error.response?.data?.message || 'Não foi possível processar a solicitação.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top']}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <View style={styles.logoContainer}>
+            <Image
+              source={require('../../../../assets/images/trustme-logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              tintColor={CustomColors.white}
+            />
+          </View>
+          <Text style={styles.headerTitle}>Adquirir Selo</Text>
+        </View>
+        <View style={styles.placeholder} />
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Informações do Selo */}
+        <View style={styles.sealInfoCard}>
+          <View style={styles.sealIconContainer}>
+            <SafeIcon name="seal" size={32} color={CustomColors.activeColor} />
+          </View>
+          <View style={styles.sealInfo}>
+            <Text style={styles.sealName}>{selo.nome || selo.descricao || selo.codigo}</Text>
+            <Text style={styles.sealCode}>Código: {selo.codigo}</Text>
+            <Text style={styles.sealPrice}>
+              R$ {selo.custo_obtencao != null && typeof selo.custo_obtencao === 'number' 
+                ? selo.custo_obtencao.toFixed(2).replace('.', ',') 
+                : '0,00'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Upload de Imagens */}
+        <View style={styles.uploadSection}>
+          <Text style={styles.sectionTitle}>Documentos Necessários</Text>
+
+          {requiredDocuments.map((docName, index) => {
+            const currentFile = documentFiles[docName];
+            return (
+              <View key={index} style={styles.uploadCard}>
+                <Text style={styles.uploadLabel}>{docName} *</Text>
+                {currentFile ? (
+                  <View style={styles.filePreview}>
+                    {currentFile.isImage ? (
+                      <Image 
+                        source={{ uri: currentFile.uri }} 
+                        style={styles.previewImage} 
+                      />
+                    ) : (
+                      <View style={styles.pdfPreview}>
+                        <SafeIcon name="document" size={48} color={CustomColors.activeColor} />
+                        <Text style={styles.pdfFileName} numberOfLines={1}>
+                          {currentFile.name}
+                        </Text>
+                        <Text style={styles.pdfLabel}>PDF</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity
+                      style={styles.removeButton}
+                      onPress={() => removeFile(docName)}
+                    >
+                      <SafeIcon name="close-circle" size={24} color={CustomColors.white} />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                <TouchableOpacity
+                  style={styles.uploadButton}
+                  onPress={() => {
+                    console.log(`📄 Botão clicado: ${docName}`);
+                    showFileTypePicker(docName);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <SafeIcon name="add-circle" size={32} color={CustomColors.activeColor} />
+                  <Text style={styles.uploadButtonText}>Adicionar Arquivo</Text>
+                  <Text style={styles.uploadButtonSubtext}>Imagem ou PDF</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            );
+          })}
+        </View>
+
+        {/* Botão Continuar */}
+        <TouchableOpacity
+          style={[styles.continueButton, uploading && styles.continueButtonDisabled]}
+          onPress={handleContinue}
+          disabled={uploading || requiredDocuments.some(doc => !documentFiles[doc])}
+        >
+          {uploading ? (
+            <ActivityIndicator color={CustomColors.activeColor} />
+          ) : (
+            <>
+              <Text style={styles.continueButtonText}>Continuar para Pagamento</Text>
+              <SafeIcon name="arrow-forward" size={20} color={CustomColors.activeColor} />
+            </>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: CustomColors.backgroundPrimaryColor,
+  },
+  header: {
+    backgroundColor: CustomColors.activeColor,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    padding: 4,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  logoContainer: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logo: {
+    width: 40,
+    height: 40,
+    tintColor: CustomColors.white,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: CustomColors.white,
+  },
+  placeholder: {
+    width: 32,
+  },
+  content: {
+    flex: 1,
+  },
+  sealInfoCard: {
+    backgroundColor: CustomColors.white,
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    flexDirection: 'row',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sealIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: CustomColors.backgroundPrimaryColor,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  sealInfo: {
+    flex: 1,
+  },
+  sealName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: CustomColors.black,
+    marginBottom: 4,
+  },
+  sealCode: {
+    fontSize: 12,
+    color: CustomColors.activeGreyed,
+    marginBottom: 4,
+  },
+  sealPrice: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: CustomColors.activeColor,
+  },
+  uploadSection: {
+    padding: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: CustomColors.black,
+    marginBottom: 16,
+  },
+  uploadCard: {
+    backgroundColor: CustomColors.white,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  uploadLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: CustomColors.black,
+    marginBottom: 12,
+  },
+  uploadButton: {
+    borderWidth: 2,
+    borderColor: CustomColors.activeColor,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: CustomColors.backgroundPrimaryColor,
+  },
+  uploadButtonText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: CustomColors.activeColor,
+    fontWeight: '600',
+  },
+  uploadButtonSubtext: {
+    marginTop: 4,
+    fontSize: 12,
+    color: CustomColors.activeGreyed,
+  },
+  imagePreview: {
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  previewImage: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+  },
+  removeButton: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 20,
+    padding: 4,
+  },
+  continueButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: CustomColors.pastelGreen,
+    borderRadius: 12,
+    paddingVertical: 16,
+    margin: 16,
+    gap: 8,
+  },
+  continueButtonDisabled: {
+    opacity: 0.6,
+  },
+  continueButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: CustomColors.activeColor,
+  },
+});
+
+export default SealAcquisitionScreen;
+

@@ -1,0 +1,79 @@
+# Dependencies
+node_modules/
+vendor/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Laravel specific
+trustme-back/storage/*.key
+trustme-back/storage/logs/*
+trustme-back/storage/framework/cache/*
+trustme-back/storage/framework/sessions/*
+trustme-back/storage/framework/views/*
+trustme-back/bootstrap/cache/*
+!trustme-back/storage/.gitignore
+!trustme-back/storage/logs/.gitignore
+!trustme-back/storage/framework/.gitignore
+!trustme-back/storage/framework/cache/.gitignore
+!trustme-back/storage/framework/sessions/.gitignore
+!trustme-back/storage/framework/views/.gitignore
+!trustme-back/bootstrap/cache/.gitignore
+
+# React Native
+trustme-app/.expo/
+trustme-app/.expo-shared/
+trustme-app/dist/
+trustme-app/web-build/
+trustme-app/*.orig.*
+trustme-app/*.jks
+trustme-app/*.p8
+trustme-app/*.p12
+trustme-app/*.key
+trustme-app/*.mobileprovision
+trustme-app/*.orig.*
+trustme-app/web-build/
+
+# Vue.js
+trusteme-front/dist/
+trusteme-front/.vite/
+trusteme-front/.output/
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Docker
+docker-compose.override.yml
+

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Logo">
+  <defs>
+    <style>
+      .brand { fill: #0a2a55; }
+      .waves { fill: none; stroke: #0a2a55; stroke-width: 10; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <!-- Torre principal -->
+  <g class="brand">
+    <!-- Corpo da torre -->
+    <rect x="120" y="40" width="56" height="120" rx="2"/>
+    <!-- Merlões (crenelações) -->
+    <rect x="120" y="28" width="12" height="16"/>
+    <rect x="140" y="28" width="12" height="16"/>
+    <rect x="160" y="28" width="12" height="16"/>
+
+    <!-- Três marcas/triângulos à esquerda do topo -->
+    <polygon points="96,52 108,46 108,58"/>
+    <polygon points="96,72 112,64 112,80"/>
+    <polygon points="96,92 116,82 116,98"/>
+  </g>
+
+  <!-- Ondas (3 linhas) -->
+  <g>
+    <path class="waves" d="M20 178 C 44 170, 64 186, 88 178 S 132 170, 156 178 S 200 186, 236 176"/>
+    <path class="waves" d="M20 196 C 44 188, 64 204, 88 196 S 132 188, 156 196 S 200 204, 236 194"/>
+    <path class="waves" d="M20 214 C 44 206, 64 222, 88 214 S 132 206, 156 214 S 200 222, 236 212"/>
+  </g>
+</svg> 

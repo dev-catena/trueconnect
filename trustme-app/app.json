@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "TrueConnect",
+    "slug": "trustme-app",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/images/trustme-logo.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/images/trustme-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F5F9FF"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.catenasystem.trustme",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Este app precisa acessar suas fotos para fazer upload de documentos.",
+        "NSCameraUsageDescription": "Este app precisa acessar a câmera para tirar fotos de documentos."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/trustme-logo.png",
+        "backgroundColor": "#F5F9FF"
+      },
+      "package": "com.catenasystem.trustme",
+      "permissions": [
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "CAMERA"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/trustme-logo.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "trustme-app"
+      }
+    }
+  }
+}
