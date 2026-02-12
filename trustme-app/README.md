@@ -88,3 +88,6 @@ O estado global é gerenciado através de Context API no `UserContext`, que gere
 4. Testar integração com backend unificado
 
 
+
+
+

@@ -93,9 +93,8 @@ class AdminController extends Controller
             ], 422);
         }
 
-        // Gerar código único para o usuário
-        $maxCodigo = User::max('codigo') ?? 0;
-        $codigo = $maxCodigo + 1;
+        // Gerar código único de 6 dígitos para o usuário
+        $codigo = User::generateUniqueCode();
 
         $user = User::create([
             'codigo' => $codigo,

@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ContractsStackParamList } from '../../../types/navigation';
+import { ContractsStackParamList, HomeStackParamList } from '../../../types/navigation';
 import { useUser } from '../../../core/context/UserContext';
 import { CustomColors } from '../../../core/colors';
 import CustomScaffold from '../../../components/CustomScaffold';
@@ -14,14 +14,17 @@ import SafeIcon from '../../../components/SafeIcon';
 import { Contract } from '../../../types';
 
 type ContractsScreenNavigationProp = NativeStackNavigationProp<
-  ContractsStackParamList,
-  'ContractsMain'
+  HomeStackParamList & ContractsStackParamList,
+  'ContractsMain' | 'Contracts'
 >;
 
 const ContractsScreen: React.FC = () => {
   const navigation = useNavigation<ContractsScreenNavigationProp>();
+  const route = useRoute<any>();
   const { contracts, refreshUserData, isLoading } = useUser();
-  const [selectedFilter, setSelectedFilter] = useState('Todos');
+  const initialFilter = route.params?.initialFilter as string | undefined;
+  const [selectedFilter, setSelectedFilter] = useState(initialFilter || 'Todos');
+
   const [searchQuery, setSearchQuery] = useState('');
 
   const filters = ['Todos', 'Pendente', 'Ativo', 'Concluído', 'Expirado'];

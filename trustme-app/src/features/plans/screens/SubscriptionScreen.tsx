@@ -19,6 +19,7 @@ interface Plan {
   monthly_price: number;
   semiannual_price: number;
   annual_price: number;
+  one_time_price: number | null;
   seals_limit: number | null;
   contracts_limit: number | null;
   features: string[];
@@ -32,21 +33,32 @@ const SubscriptionScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [processing, setProcessing] = useState(false);
 
-  const getPrice = () => {
+  const getPrice = (): number => {
+    let price: number | undefined | null;
     switch (billingCycle) {
       case 'monthly':
-        return plan.monthly_price;
+        price = plan.monthly_price;
+        break;
       case 'semiannual':
-        return plan.semiannual_price;
+        price = plan.semiannual_price;
+        break;
       case 'annual':
-        return plan.annual_price;
+        price = plan.annual_price;
+        break;
+      case 'one_time':
+        price = plan.one_time_price;
+        break;
       default:
-        return plan.monthly_price;
+        price = plan.monthly_price;
     }
+    // Garantir que sempre retorna um número válido
+    return price != null && !isNaN(Number(price)) ? Number(price) : 0;
   };
 
-  const formatPrice = (price: number) => {
-    return `R$ ${price.toFixed(2).replace('.', ',')}`;
+  const formatPrice = (price: number | null | undefined): string => {
+    // Garantir que price é um número válido
+    const numPrice = price != null && !isNaN(Number(price)) ? Number(price) : 0;
+    return `R$ ${numPrice.toFixed(2).replace('.', ',')}`;
   };
 
   const getBillingLabel = () => {
@@ -57,6 +69,8 @@ const SubscriptionScreen: React.FC = () => {
         return 'semestral';
       case 'annual':
         return 'anual';
+      case 'one_time':
+        return 'único';
       default:
         return 'mensal';
     }

@@ -98,3 +98,6 @@ trustme-app/
 - A navegação usa React Navigation
 
 
+
+
+

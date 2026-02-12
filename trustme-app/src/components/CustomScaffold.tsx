@@ -11,6 +11,7 @@ interface CustomScaffoldProps {
   children: React.ReactNode;
   title?: string;
   showProfileButton?: boolean;
+  showBackButton?: boolean;
   floatingActionButton?: React.ReactNode;
 }
 
@@ -18,6 +19,7 @@ const CustomScaffold: React.FC<CustomScaffoldProps> = ({
   children,
   title = 'TrueConnect',
   showProfileButton = true,
+  showBackButton = false,
   floatingActionButton,
 }) => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -26,24 +28,34 @@ const CustomScaffold: React.FC<CustomScaffoldProps> = ({
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.headerContent}>
-          <View style={styles.logoContainer}>
-            <Image
-              source={require('../../assets/images/trustme-logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-              tintColor={CustomColors.white}
-            />
+          <View style={styles.headerLeft}>
+            {showBackButton && (
+              <TouchableOpacity
+                onPress={() => navigation.goBack()}
+                style={styles.backButton}
+              >
+                <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
+              </TouchableOpacity>
+            )}
+            <View style={styles.logoContainer}>
+              <Image
+                source={require('../../assets/images/trustme-logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+                tintColor={CustomColors.white}
+              />
+            </View>
+            <Text style={styles.headerTitle}>{title}</Text>
           </View>
-          <Text style={styles.headerTitle}>{title}</Text>
+          {showProfileButton && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Profile')}
+              style={styles.profileButton}
+            >
+              <SafeIcon name="profile" size={28} color={CustomColors.white} />
+            </TouchableOpacity>
+          )}
         </View>
-        {showProfileButton && (
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Profile')}
-            style={styles.profileButton}
-          >
-            <View style={styles.avatar} />
-          </TouchableOpacity>
-        )}
       </View>
       <View style={styles.content}>
         {children}
@@ -70,22 +82,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
+  backButton: {
+    padding: 4,
+  },
+  headerPlaceholder: {
+    width: 32,
+  },
   headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
   },
   logoContainer: {
-    height: 32,
-    width: 32,
+    height: 40,
+    width: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
   logo: {
-    height: 32,
-    width: 32,
-    opacity: 1,
-    tintColor: CustomColors.white,
+    height: 40,
+    width: 40,
   },
   headerTitle: {
     fontSize: 20,
@@ -93,13 +116,7 @@ const styles = StyleSheet.create({
     color: CustomColors.white,
   },
   profileButton: {
-    marginRight: 10,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: CustomColors.white,
+    padding: 4,
   },
   content: {
     flex: 1,

@@ -98,3 +98,6 @@ nvm use 20
 - `EXPO_SETUP.md` - Configuração geral do Expo
 
 
+
+
+

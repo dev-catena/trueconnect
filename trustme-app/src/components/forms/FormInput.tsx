@@ -6,12 +6,14 @@ interface FormInputProps extends TextInputProps {
   label: string;
   error?: string;
   required?: boolean;
+  helperText?: string;
 }
 
 const FormInput: React.FC<FormInputProps> = ({
   label,
   error,
   required = false,
+  helperText,
   ...textInputProps
 }) => {
   // Garante que editable seja true por padrão, a menos que seja explicitamente false
@@ -31,6 +33,7 @@ const FormInput: React.FC<FormInputProps> = ({
         pointerEvents="auto"
       />
       {error && <Text style={styles.errorText}>{error}</Text>}
+      {!error && helperText && <Text style={styles.helperText}>{helperText}</Text>}
     </View>
   );
 };
@@ -62,6 +65,11 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: CustomColors.vividRed,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  helperText: {
+    color: CustomColors.activeGreyed,
     fontSize: 12,
     marginTop: 4,
   },

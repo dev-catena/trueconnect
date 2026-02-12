@@ -21,41 +21,48 @@ class AuthController extends Controller
 {
     public function login(Request $request)
     {
-        // Suporta login por email (web) ou CPF (app)
-        $validator = Validator::make($request->all(), [
-            'email' => 'sometimes|email',
-            'CPF' => 'sometimes|string',
-            'password' => 'required|string'
-        ]);
+        try {
+            // Suporta login por email (web) ou CPF (app)
+            $validator = Validator::make($request->all(), [
+                'email' => 'sometimes|email',
+                'CPF' => 'sometimes|string',
+                'password' => 'required|string'
+            ]);
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        // Determina se é login por email ou CPF
-        if ($request->has('email')) {
-            $user = User::where('email', $request->email)->first();
-        } elseif ($request->has('CPF')) {
-            // Normalizar CPF: remover pontos, traços e espaços
-            $cpf = preg_replace('/[^0-9]/', '', $request->CPF);
-            
-            // Buscar usuário por CPF normalizado ou com formatação
-            $user = User::where(function($query) use ($cpf, $request) {
-                $query->where('CPF', $cpf)
-                      ->orWhere('CPF', $request->CPF); // Também tenta com formatação original
-            })->first();
-            
-            // Log para debug (apenas em desenvolvimento)
-            if (config('app.debug')) {
-                \Log::info('Login attempt', [
-                    'cpf_received' => $request->CPF,
-                    'cpf_normalized' => $cpf,
-                    'user_found' => $user ? $user->id : null
-                ]);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
             }
-        } else {
-            return response()->json(['message' => 'Email ou CPF é obrigatório'], 422);
-        }
+
+            // Determina se é login por email ou CPF
+            if ($request->has('email')) {
+                $user = User::where('email', $request->email)->first();
+            } elseif ($request->has('CPF')) {
+                // Normalizar CPF: remover pontos, traços e espaços
+                $cpfNormalized = preg_replace('/[^0-9]/', '', $request->CPF);
+                
+                // Buscar usuário por CPF normalizado ou com formatação
+                // Tenta buscar normalizando o CPF do banco também
+                $user = User::where(function($query) use ($cpfNormalized, $request) {
+                    // Tenta buscar com CPF normalizado (sem formatação)
+                    $query->whereRaw("REPLACE(REPLACE(REPLACE(CPF, '.', ''), '-', ''), ' ', '') = ?", [$cpfNormalized])
+                          // Também tenta com o CPF exatamente como foi enviado
+                          ->orWhere('CPF', $request->CPF)
+                          // E também tenta com o CPF normalizado diretamente (caso já esteja sem formatação no banco)
+                          ->orWhere('CPF', $cpfNormalized);
+                })->first();
+                
+                // Log para debug (apenas em desenvolvimento)
+                if (config('app.debug')) {
+                    \Log::info('Login attempt', [
+                        'cpf_received' => $request->CPF,
+                        'cpf_normalized' => $cpfNormalized,
+                        'user_found' => $user ? $user->id : null,
+                        'user_cpf' => $user ? $user->CPF : null
+                    ]);
+                }
+            } else {
+                return response()->json(['message' => 'Email ou CPF é obrigatório'], 422);
+            }
 
         if (!$user) {
             return response()->json(['message' => 'Credenciais inválidas'], 401);
@@ -67,7 +74,11 @@ class AuthController extends Controller
 
         // Atualiza contratos expirados (para app)
         if ($request->has('CPF')) {
-            $this->atualizarContratosExpiradosDoUsuario($user);
+            try {
+                $this->atualizarContratosExpiradosDoUsuario($user);
+            } catch (\Exception $e) {
+                \Log::warning('Erro ao atualizar contratos expirados: ' . $e->getMessage());
+            }
         }
 
         // Expiração em 14 dias (app) ou sem expiração (web)
@@ -78,46 +89,72 @@ class AuthController extends Controller
 
         // Atualiza expiração do token se necessário
         if ($expires_at) {
-            $user->tokens()
-                ->where('name', $tokenName)
-                ->latest()
-                ->first()
-                ->update(['expires_at' => $expires_at]);
+            try {
+                $tokenModel = $user->tokens()
+                    ->where('name', $tokenName)
+                    ->latest()
+                    ->first();
+                
+                if ($tokenModel) {
+                    $tokenModel->update(['expires_at' => $expires_at]);
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Erro ao atualizar expiração do token: ' . $e->getMessage());
+            }
         }
 
         // Atualiza o histórico de login (web)
         if ($request->has('email') && class_exists(LoginHistory::class)) {
-            $loginHistory = LoginHistory::firstOrNew(['user_id' => $user->id]);
-            if (!$loginHistory->first_login_at) {
-                $loginHistory->first_login_at = Carbon::now();
+            try {
+                $loginHistory = LoginHistory::firstOrNew(['user_id' => $user->id]);
+                if (!$loginHistory->first_login_at) {
+                    $loginHistory->first_login_at = Carbon::now();
+                }
+                $loginHistory->last_login_at = Carbon::now();
+                $loginHistory->save();
+            } catch (\Exception $e) {
+                \Log::warning('Erro ao salvar histórico de login: ' . $e->getMessage());
             }
-            $loginHistory->last_login_at = Carbon::now();
-            $loginHistory->save();
         }
 
         // Resposta para app
         if ($request->has('CPF')) {
-            return $this->ok('Login realizado com sucesso.', [
-                'token' => $token,
-                'expires_at' => $expires_at->toIso8601String()
+            return response()->json([
+                'success' => true,
+                'message' => 'Login realizado com sucesso.',
+                'data' => [
+                    'token' => $token,
+                    'expires_at' => $expires_at ? $expires_at->toIso8601String() : null
+                ]
             ]);
         }
 
-        // Resposta para web - garantir que ambos os campos estejam presentes
-        $userName = $user->name ?: $user->nome_completo;
-        $userNomeCompleto = $user->nome_completo ?: $user->name;
-        
-        return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $userName,
-                'nome_completo' => $userNomeCompleto,
-                'email' => $user->email,
-                'role' => $user->role
-            ],
-            'token' => $token,
-            'token_type' => 'Bearer'
-        ]);
+            // Resposta para web - garantir que ambos os campos estejam presentes
+            $userName = $user->name ?: ($user->nome_completo ?? 'Usuário');
+            $userNomeCompleto = $user->nome_completo ?: ($user->name ?? 'Usuário');
+            
+            return response()->json([
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $userName,
+                    'nome_completo' => $userNomeCompleto,
+                    'email' => $user->email,
+                    'role' => $user->role ?? 'user'
+                ],
+                'token' => $token,
+                'token_type' => 'Bearer'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Erro no login: ' . $e->getMessage(), [
+                'email' => $request->email ?? null,
+                'cpf' => $request->CPF ?? null,
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'message' => 'Erro ao realizar login: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function usuFunc()
@@ -216,6 +253,7 @@ class AuthController extends Controller
         }
 
         $userData = [
+            'codigo' => User::generateUniqueCode(), // Gerar código de 6 dígitos
             'nome_completo' => $request->nome_completo,
             'name' => $request->nome_completo, // Mantém compatibilidade com web
             'CPF' => $request->CPF,
@@ -301,19 +339,37 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        $user = $request->user();
-        // Garantir que name esteja preenchido (usando nome_completo se necessário)
-        $name = $user->name ?: $user->nome_completo;
-        
-        return response()->json([
-            'user' => [
-                'id' => $user->id,
-                'name' => $name,
-                'nome_completo' => $user->nome_completo ?: $user->name,
-                'email' => $user->email,
-                'role' => $user->role
-            ]
-        ]);
+        try {
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'message' => 'Usuário não autenticado'
+                ], 401);
+            }
+            
+            // Garantir que name esteja preenchido (usando nome_completo se necessário)
+            $name = $user->name ?: ($user->nome_completo ?? 'Usuário');
+            $nomeCompleto = $user->nome_completo ?: $user->name;
+            
+            return response()->json([
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $name,
+                    'nome_completo' => $nomeCompleto,
+                    'email' => $user->email,
+                    'role' => $user->role ?? 'user'
+                ]
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Erro no método me(): ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'message' => 'Erro ao buscar dados do usuário: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function forgotPassword(Request $request)

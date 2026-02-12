@@ -2,11 +2,12 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { ContractsStackParamList } from '../types/navigation';
+import { ContractsStackParamList, HomeStackParamList } from '../types/navigation';
 import { Contract } from '../types';
 import { CustomColors } from '../core/colors';
 import { formatDate } from '../utils/dateParser';
 import SafeIcon from './SafeIcon';
+import SignatureCountdown from './SignatureCountdown';
 
 interface ContractCardProps {
   contract: Contract;
@@ -14,7 +15,7 @@ interface ContractCardProps {
 }
 
 const ContractCard: React.FC<ContractCardProps> = ({ contract, onPress }) => {
-  const navigation = useNavigation<NativeStackNavigationProp<ContractsStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<ContractsStackParamList | HomeStackParamList>>();
 
   const handlePress = () => {
     if (onPress) {
@@ -67,7 +68,13 @@ const ContractCard: React.FC<ContractCardProps> = ({ contract, onPress }) => {
           </Text>
         </View>
         
-        {(contract.status === 'Ativo' || contract.status === 'Pendente') && !isExpired && (
+        {contract.status === 'Pendente' && contract.dt_prazo_assinatura && (
+          <SignatureCountdown
+            dtPrazoAssinatura={contract.dt_prazo_assinatura}
+            compact
+          />
+        )}
+        {(contract.status === 'Ativo' || contract.status === 'Pendente') && !isExpired && contract.dt_fim && !contract.dt_prazo_assinatura && (
           <View style={styles.timeContainer}>
             <SafeIcon
               name="clock"
@@ -75,7 +82,7 @@ const ContractCard: React.FC<ContractCardProps> = ({ contract, onPress }) => {
               color={CustomColors.activeGreyed}
             />
             <Text style={styles.timeText}>
-              {contract.dt_fim ? formatDate(contract.dt_fim) : 'N/A'}
+              {formatDate(contract.dt_fim)}
             </Text>
           </View>
         )}

@@ -54,7 +54,13 @@ class ContratoClausulaController extends Controller
                         throw new \Exception("Cláusula não encontrada para esse usuário no contrato informado.");
                     }
 
-                    // 4. Atualiza aceitação
+                    // 4. Verificar se o contrato já foi assinado (não pode alterar após assinatura)
+                    $contrato = \App\Models\Contrato::find($item['contrato_id']);
+                    if ($contrato && $contrato->status !== 'Pendente') {
+                        throw new \Exception("Não é possível alterar a aprovação de cláusulas após a assinatura do contrato.");
+                    }
+
+                    // 5. Atualiza aceitação
                     $usuarioClausula->aceito = $item['aceito'];
                     $usuarioClausula->save();
                 }

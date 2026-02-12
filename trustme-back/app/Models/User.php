@@ -15,6 +15,21 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
+    /**
+     * Gera um código único de 6 dígitos para o usuário
+     */
+    public static function generateUniqueCode(): string
+    {
+        do {
+            // Gera um número aleatório de 6 dígitos (000000 a 999999)
+            $code = str_pad(rand(0, 999999), 6, '0', STR_PAD_LEFT);
+            // Verifica se o código já existe
+            $exists = self::where('codigo', $code)->exists();
+        } while ($exists);
+        
+        return $code;
+    }
+
     protected $fillable = [
         // Campos do App
         'codigo',
@@ -52,6 +67,32 @@ class User extends Authenticatable
         'deleted_at'        => 'datetime',
         'password'          => 'hashed',
     ];
+
+    /**
+     * Accessor para garantir que o código seja sempre formatado com 6 dígitos
+     */
+    public function getCodigoAttribute($value)
+    {
+        if (!$value) {
+            return null;
+        }
+        
+        // Converter para string e formatar com 6 dígitos
+        $codeStr = trim((string)$value);
+        
+        // Se já tem 6 dígitos, retornar como está
+        if (strlen($codeStr) === 6 && ctype_digit($codeStr)) {
+            return $codeStr;
+        }
+        
+        // Se tem mais de 6 dígitos, retornar os últimos 6 dígitos
+        if (strlen($codeStr) > 6) {
+            return substr($codeStr, -6);
+        }
+        
+        // Se tem menos de 6 dígitos, preencher com zeros à esquerda
+        return str_pad($codeStr, 6, '0', STR_PAD_LEFT);
+    }
 
     // Relacionamentos do App
     public function respostasPerguntasContrato()
@@ -181,6 +222,80 @@ class User extends Authenticatable
     public function activeSubscription()
     {
         return $this->hasOne(Subscription::class)->where('status', 'active');
+    }
+
+    public function additionalPurchases()
+    {
+        return $this->hasMany(AdditionalPurchase::class);
+    }
+
+    /**
+     * Retorna o limite total de contratos (plano + compras adicionais)
+     */
+    public function getTotalContractsLimit()
+    {
+        $activeSubscription = $this->activeSubscription;
+        $planLimit = $activeSubscription?->plan?->contracts_limit ?? 0;
+        
+        // Se o plano é ilimitado, retorna null
+        if ($planLimit === null) {
+            return null;
+        }
+
+        $additionalContracts = AdditionalPurchase::getTotalAdditionalContracts($this->id);
+        return $planLimit + $additionalContracts;
+    }
+
+    /**
+     * Retorna o limite total de conexões (plano + compras adicionais)
+     * Por enquanto, conexões são ilimitadas, mas podemos adicionar limite no futuro
+     */
+    public function getTotalConnectionsLimit()
+    {
+        // Por enquanto, conexões são ilimitadas
+        return null;
+    }
+
+    /**
+     * Verifica se o usuário pode criar mais contratos
+     */
+    public function canCreateContract()
+    {
+        $limit = $this->getTotalContractsLimit();
+        
+        // Se ilimitado, sempre pode criar
+        if ($limit === null) {
+            return true;
+        }
+
+        $currentCount = $this->contratosContratante()
+            ->whereIn('status', ['Ativo', 'Pendente'])
+            ->count();
+
+        return $currentCount < $limit;
+    }
+
+    /**
+     * Verifica se o usuário pode criar mais conexões
+     */
+    public function canCreateConnection()
+    {
+        $limit = $this->getTotalConnectionsLimit();
+        
+        // Se ilimitado, sempre pode criar
+        if ($limit === null) {
+            return true;
+        }
+
+        $currentCount = \App\Models\UsuarioConexao::where(function($query) {
+            $query->where('solicitante_id', $this->id)
+                  ->orWhere('destinatario_id', $this->id);
+        })
+        ->where('aceito', true)
+        ->whereNull('deleted_at')
+        ->count();
+
+        return $currentCount < $limit;
     }
 
     public function loginHistories()

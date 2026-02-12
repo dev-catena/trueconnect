@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -157,15 +157,30 @@ const MySealsScreen: React.FC = () => {
     );
   };
 
+  const handleProfilePress = () => {
+    navigation.navigate('Profile');
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Meus Selos</Text>
-          <View style={styles.placeholder} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../../../../assets/images/trustme-logo.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  tintColor={CustomColors.white}
+                />
+              </View>
+              <Text style={styles.headerTitle}>Meus Selos</Text>
+            </View>
+            <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+              <SafeIcon name="profile" size={28} color={CustomColors.white} />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={CustomColors.activeColor} />
@@ -183,11 +198,28 @@ const MySealsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Meus Selos</Text>
-        <View style={styles.placeholder} />
+        <View style={styles.headerContent}>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+              <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
+            </TouchableOpacity>
+            <View style={styles.logoContainer}>
+              <Image
+                source={require('../../../../assets/images/trustme-logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+                tintColor={CustomColors.white}
+              />
+            </View>
+            <Text style={styles.headerTitle}>Meus Selos</Text>
+          </View>
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('Main', { screen: 'Home', params: { screen: 'Seals' } })}
+            style={styles.addButton}
+          >
+            <SafeIcon name="add-circle" size={28} color={CustomColors.white} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -202,7 +234,8 @@ const MySealsScreen: React.FC = () => {
               style={styles.browseButton}
               onPress={() => navigation.navigate('Main', { screen: 'Home', params: { screen: 'Seals' } })}
             >
-              <Text style={styles.browseButtonText}>Explorar Selos</Text>
+              <SafeIcon name="add-circle" size={20} color={CustomColors.white} />
+              <Text style={styles.browseButtonText}>Solicitar Selo</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -211,6 +244,13 @@ const MySealsScreen: React.FC = () => {
             {renderSealSection('Pendentes', sealsData?.pendentes || [], 'pendentes')}
             {renderSealSection('Expirados', sealsData?.expirados || [], 'expirados')}
             {renderSealSection('Rejeitados', sealsData?.cancelados || [], 'cancelados')}
+            <TouchableOpacity
+              style={styles.addSealButton}
+              onPress={() => navigation.navigate('Main', { screen: 'Home', params: { screen: 'Seals' } })}
+            >
+              <SafeIcon name="add-circle" size={24} color={CustomColors.white} />
+              <Text style={styles.addSealButtonText}>Solicitar Novo Selo</Text>
+            </TouchableOpacity>
           </>
         )}
       </ScrollView>
@@ -227,20 +267,41 @@ const styles = StyleSheet.create({
     backgroundColor: CustomColors.activeColor,
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 12,
   },
-  backButton: {
-    padding: 4,
+  logoContainer: {
+    height: 40,
+    width: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logo: {
+    height: 40,
+    width: 40,
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: CustomColors.white,
   },
-  placeholder: {
-    width: 32,
+  profileButton: {
+    padding: 4,
+  },
+  backButton: {
+    padding: 4,
+    marginRight: 8,
+  },
+  addButton: {
+    padding: 4,
   },
   content: {
     flex: 1,
@@ -278,11 +339,30 @@ const styles = StyleSheet.create({
   },
   browseButton: {
     backgroundColor: CustomColors.activeColor,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
+    gap: 8,
   },
   browseButtonText: {
+    color: CustomColors.white,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  addSealButton: {
+    backgroundColor: CustomColors.activeColor,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginTop: 8,
+    marginBottom: 24,
+    gap: 8,
+  },
+  addSealButtonText: {
     color: CustomColors.white,
     fontSize: 16,
     fontWeight: '600',

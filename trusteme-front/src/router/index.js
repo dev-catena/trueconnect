@@ -157,6 +157,16 @@ const routes = [
         path: 'identidade-organizacional',
         name: 'admin-organizational-identity',
         component: OrganizationalIdentity
+      },
+      {
+        path: 'precos-adicionais',
+        name: 'admin-additional-purchase-prices',
+        component: () => import('@/views/admin/AdditionalPurchasePrices.vue')
+      },
+      {
+        path: 'parametros-sistema',
+        name: 'admin-parametros-sistema',
+        component: () => import('@/views/admin/SystemParameters.vue')
       }
     ]
   },

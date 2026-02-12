@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -7,7 +7,16 @@ import { RootStackParamList } from '../../../types/navigation';
 import { useUser } from '../../../core/context/UserContext';
 import { CustomColors } from '../../../core/colors';
 import SafeIcon from '../../../components/SafeIcon';
+import SignatureCountdown from '../../../components/SignatureCountdown';
 import ApiProvider from '../../../core/api/ApiProvider';
+
+interface Subscription {
+  id: number;
+  plan_id: number;
+  status: string;
+  start_date: string;
+  end_date: string | null;
+}
 
 interface Contract {
   id: number;
@@ -17,6 +26,7 @@ interface Contract {
   duracao?: number;
   dt_inicio?: string;
   dt_fim?: string;
+  dt_prazo_assinatura?: string | null;
   contratante_id?: number;
   contrato_tipo_id?: number;
   tipo?: {
@@ -39,10 +49,46 @@ const MyContractsScreen: React.FC = () => {
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [contracts, setContracts] = useState<Contract[]>([]);
+  const [hasActivePlan, setHasActivePlan] = useState<boolean | null>(null);
 
   useEffect(() => {
-    loadContracts();
+    checkActivePlan();
   }, []);
+
+  useEffect(() => {
+    if (hasActivePlan === true) {
+      loadContracts();
+    } else if (hasActivePlan === false) {
+      setLoading(false);
+    }
+  }, [hasActivePlan]);
+
+  const checkActivePlan = async () => {
+    try {
+      const api = new ApiProvider(true);
+      const response = await api.get<{ success: boolean; data: Subscription[] }>('user/subscriptions');
+
+      if (response.success && Array.isArray(response.data)) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const active = response.data.find((sub: Subscription) => {
+          if (sub.status !== 'active') return false;
+          if (!sub.end_date) return true; // Se não tem data de fim, considera ativa
+          const endDate = new Date(sub.end_date);
+          endDate.setHours(0, 0, 0, 0);
+          return endDate >= today;
+        });
+
+        setHasActivePlan(!!active);
+      } else {
+        setHasActivePlan(false);
+      }
+    } catch (error: any) {
+      console.error('Erro ao verificar plano ativo:', error);
+      setHasActivePlan(false);
+    }
+  };
 
   const loadContracts = async () => {
     if (!user?.id) {
@@ -75,10 +121,21 @@ const MyContractsScreen: React.FC = () => {
 
   const getStatusColor = (status?: string) => {
     const colors: { [key: string]: string } = {
-      'Ativo': CustomColors.activeColor,
-      'Pendente': '#FFA500',
-      'Concluído': '#4CAF50',
-      'Expirado': '#888888',
+      'Ativo': CustomColors.successGreen,
+      'Pendente': CustomColors.activeColor,
+      'Concluído': CustomColors.activeGreyed,
+      'Expirado': '#FF8C00', // Laranja
+      'Cancelado': CustomColors.vividRed,
+    };
+    return colors[status || ''] || CustomColors.activeGreyed;
+  };
+
+  const getCardBorderColor = (status?: string) => {
+    const colors: { [key: string]: string } = {
+      'Ativo': CustomColors.successGreen,
+      'Pendente': CustomColors.activeColor,
+      'Concluído': CustomColors.activeGreyed,
+      'Expirado': '#FF8C00', // Laranja
       'Cancelado': CustomColors.vividRed,
     };
     return colors[status || ''] || CustomColors.activeGreyed;
@@ -98,15 +155,30 @@ const MyContractsScreen: React.FC = () => {
     }
   };
 
+  const handleProfilePress = () => {
+    navigation.navigate('Profile');
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Meus Contratos</Text>
-          <View style={styles.placeholder} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../../../../assets/images/trustme-logo.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  tintColor={CustomColors.white}
+                />
+              </View>
+              <Text style={styles.headerTitle}>Meus Contratos</Text>
+            </View>
+            <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+              <SafeIcon name="profile" size={28} color={CustomColors.white} />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={CustomColors.activeColor} />
@@ -119,15 +191,41 @@ const MyContractsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Meus Contratos</Text>
-        <View style={styles.placeholder} />
+        <View style={styles.headerContent}>
+          <View style={styles.headerLeft}>
+            <View style={styles.logoContainer}>
+              <Image
+                source={require('../../../../assets/images/trustme-logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+                tintColor={CustomColors.white}
+              />
+            </View>
+            <Text style={styles.headerTitle}>Meus Contratos</Text>
+          </View>
+          <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+            <SafeIcon name="profile" size={28} color={CustomColors.white} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {contracts.length === 0 ? (
+        {hasActivePlan === false ? (
+          <View style={styles.noPlanContainer}>
+            <SafeIcon name="document" size={64} color={CustomColors.activeGreyed} />
+            <Text style={styles.noPlanTitle}>Funcionalidade Indisponível</Text>
+            <Text style={styles.noPlanText}>
+              Esta funcionalidade não está disponível no momento. Para acessar seus contratos, você precisa contratar um plano.
+            </Text>
+            <TouchableOpacity
+              style={styles.planButton}
+              onPress={() => navigation.navigate('Plans')}
+            >
+              <Text style={styles.planButtonText}>Contratar Plano</Text>
+              <SafeIcon name="arrow-forward" size={20} color={CustomColors.white} />
+            </TouchableOpacity>
+          </View>
+        ) : contracts.length === 0 ? (
           <View style={styles.emptyContainer}>
             <SafeIcon name="document" size={64} color={CustomColors.activeGreyed} />
             <Text style={styles.emptyTitle}>Nenhum contrato encontrado</Text>
@@ -137,7 +235,16 @@ const MyContractsScreen: React.FC = () => {
           </View>
         ) : (
           contracts.map((contract) => (
-            <View key={contract.id} style={styles.contractCard}>
+            <View
+              key={contract.id}
+              style={[
+                styles.contractCard,
+                {
+                  borderLeftWidth: 6,
+                  borderLeftColor: getCardBorderColor(contract.status),
+                },
+              ]}
+            >
               <View style={styles.contractHeader}>
                 <View style={styles.contractInfo}>
                   <Text style={styles.contractCode}>
@@ -176,6 +283,12 @@ const MyContractsScreen: React.FC = () => {
                     </Text>
                   </View>
                 )}
+                {contract.status === 'Pendente' && contract.dt_prazo_assinatura && (
+                  <SignatureCountdown
+                    dtPrazoAssinatura={contract.dt_prazo_assinatura}
+                    compact
+                  />
+                )}
               </View>
             </View>
           ))
@@ -194,20 +307,34 @@ const styles = StyleSheet.create({
     backgroundColor: CustomColors.activeColor,
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 12,
   },
-  backButton: {
-    padding: 4,
+  logoContainer: {
+    height: 40,
+    width: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logo: {
+    height: 40,
+    width: 40,
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: CustomColors.white,
   },
-  placeholder: {
-    width: 32,
+  profileButton: {
+    padding: 4,
   },
   content: {
     flex: 1,
@@ -242,16 +369,53 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     paddingHorizontal: 32,
   },
+  noPlanContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 64,
+    paddingHorizontal: 32,
+  },
+  noPlanTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: CustomColors.black,
+    marginTop: 16,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  noPlanText: {
+    fontSize: 16,
+    color: CustomColors.activeGreyed,
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 24,
+  },
+  planButton: {
+    backgroundColor: CustomColors.activeColor,
+    borderRadius: 8,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 200,
+  },
+  planButtonText: {
+    color: CustomColors.white,
+    fontSize: 16,
+    fontWeight: '600',
+    marginRight: 8,
+  },
   contractCard: {
     backgroundColor: CustomColors.white,
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   contractHeader: {
     flexDirection: 'row',

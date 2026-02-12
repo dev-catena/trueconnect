@@ -180,33 +180,49 @@ class SiteSettingController extends Controller
 
     public function getSiteContent()
     {
-        // Buscar todas as configurações do site
-        $settings = SiteSetting::all()->keyBy('key');
-        
-        // Buscar depoimentos ativos
-        $testimonials = \App\Models\Testimonial::where('is_active', true)->get();
-        
-        // Buscar planos ativos
-        $plans = \App\Models\Plan::where('is_active', true)->get();
-        
-        // Buscar FAQs ativas
-        $faqs = \App\Models\Faq::where('is_active', true)->get();
+        try {
+            // Buscar todas as configurações do site
+            $settings = SiteSetting::all()->keyBy('key');
+            
+            // Buscar depoimentos ativos (com tratamento de erro)
+            try {
+                $testimonials = \App\Models\Testimonial::where('is_active', true)->get();
+            } catch (\Exception $e) {
+                \Log::warning('Erro ao buscar testimonials: ' . $e->getMessage());
+                $testimonials = collect([]);
+            }
+            
+            // Buscar planos ativos (com tratamento de erro)
+            try {
+                $plans = \App\Models\Plan::where('is_active', true)->get();
+            } catch (\Exception $e) {
+                \Log::warning('Erro ao buscar plans: ' . $e->getMessage());
+                $plans = collect([]);
+            }
+            
+            // Buscar FAQs ativas (com tratamento de erro)
+            try {
+                $faqs = \App\Models\Faq::where('is_active', true)->get();
+            } catch (\Exception $e) {
+                \Log::warning('Erro ao buscar faqs: ' . $e->getMessage());
+                $faqs = collect([]);
+            }
 
-        // Estruturar o conteúdo do site
-        $content = [
-            // Configurações gerais
-            'site_name' => $settings->get('site_name')?->value ?? 'Trust-me',
-            'site_slogan' => $settings->get('site_slogan')?->value ?? 'Plataforma de Certificação Digital',
-            'site_description' => $settings->get('site_description')?->value ?? 'Plataforma de certificação digital e contratos seguros',
-            
-            // Hero Section
-            'home.hero_title' => $settings->get('home.hero_title')?->value ?? 'Certificação Digital e Contratos Seguros',
-            'home.hero_subtitle' => $settings->get('home.hero_subtitle')?->value ?? 'Aumente a confiança dos seus clientes com nossos selos digitais e contratos seguros',
-            'home.cta_primary_label' => $settings->get('home.cta_primary_label')?->value ?? 'Começar Agora',
-            'home.cta_secondary_label' => $settings->get('home.cta_secondary_label')?->value ?? 'Ver Planos',
-            
-            // Features Section
-            'home.features' => $this->parseJsonSetting($settings->get('home.features'), [
+            // Estruturar o conteúdo do site
+            $content = [
+                // Configurações gerais
+                'site_name' => $settings->get('site_name')?->value ?? 'Trust-me',
+                'site_slogan' => $settings->get('site_slogan')?->value ?? 'Plataforma de Certificação Digital',
+                'site_description' => $settings->get('site_description')?->value ?? 'Plataforma de certificação digital e contratos seguros',
+                
+                // Hero Section
+                'home.hero_title' => $settings->get('home.hero_title')?->value ?? 'Certificação Digital e Contratos Seguros',
+                'home.hero_subtitle' => $settings->get('home.hero_subtitle')?->value ?? 'Aumente a confiança dos seus clientes com nossos selos digitais e contratos seguros',
+                'home.cta_primary_label' => $settings->get('home.cta_primary_label')?->value ?? 'Começar Agora',
+                'home.cta_secondary_label' => $settings->get('home.cta_secondary_label')?->value ?? 'Ver Planos',
+                
+                // Features Section
+                'home.features' => $this->parseJsonSetting($settings->get('home.features'), [
                 [
                     'title' => 'Certificação Digital',
                     'text' => 'Selo de confiança para aumentar a credibilidade da sua empresa'
@@ -218,19 +234,19 @@ class SiteSettingController extends Controller
                 [
                     'title' => 'Suporte Especializado',
                     'text' => 'Equipe técnica pronta para ajudar em qualquer momento'
-                ]
-            ]),
-            
-            // Stats Section
-            'home.stats' => $this->parseJsonSetting($settings->get('home.stats'), [
+                    ]
+                ]),
+                
+                // Stats Section
+                'home.stats' => $this->parseJsonSetting($settings->get('home.stats'), [
                 ['value' => '1000+', 'label' => 'Clientes Atendidos'],
                 ['value' => '5000+', 'label' => 'Documentos Certificados'],
                 ['value' => '99.9%', 'label' => 'Uptime'],
-                ['value' => '24/7', 'label' => 'Suporte']
-            ]),
-            
-            // Steps Section
-            'home.steps' => $this->parseJsonSetting($settings->get('home.steps'), [
+                    ['value' => '24/7', 'label' => 'Suporte']
+                ]),
+                
+                // Steps Section
+                'home.steps' => $this->parseJsonSetting($settings->get('home.steps'), [
                 [
                     'title' => 'Cadastre-se',
                     'text' => 'Crie sua conta gratuitamente em menos de 2 minutos'
@@ -241,62 +257,72 @@ class SiteSettingController extends Controller
                 ],
                 [
                     'title' => 'Comece a Usar',
-                    'text' => 'Acesse todas as funcionalidades imediatamente'
-                ]
-            ]),
-            
-            // CTA Section
-            'home.cta_block_title' => $settings->get('home.cta_block_title')?->value ?? 'Pronto para Começar?',
-            'home.cta_block_subtitle' => $settings->get('home.cta_block_subtitle')?->value ?? 'Junte-se a milhares de empresas que já confiam no Trust-me',
-            
-            // Configurações da página Sobre
-            'about.hero_title' => $settings->get('about.hero_title')?->value ?? 'Sobre o Consentir',
-            'about.hero_subtitle' => $settings->get('about.hero_subtitle')?->value ?? 'Somos uma empresa dedicada a transformar a forma como as equipes colaboram e gerenciam seus projetos, oferecendo soluções inovadoras e confiáveis.',
-            'about.mission_title' => $settings->get('about.mission_title')?->value ?? 'Nossa Missão',
-            'about.mission_text' => $settings->get('about.mission_text')?->value ?? 'Capacitar empresas de todos os tamanhos com ferramentas intuitivas e poderosas que simplificam a gestão de projetos e potencializam a colaboração em equipe.',
-            'about.mission_text_2' => $settings->get('about.mission_text_2')?->value ?? 'Acreditamos que a tecnologia deve ser um facilitador, não um obstáculo. Por isso, desenvolvemos soluções que são ao mesmo tempo sofisticadas e fáceis de usar.',
-            'about.values_title' => $settings->get('about.values_title')?->value ?? 'Nossos Valores',
-            'about.value_1_title' => $settings->get('about.value_1_title')?->value ?? 'Consentimento',
-            'about.value_1_description' => $settings->get('about.value_1_description')?->value ?? 'Base de todos os relacionamentos saudáveis. Acreditamos que o consentimento explícito e documentado é fundamental para relações respeitosas.',
-            'about.value_2_title' => $settings->get('about.value_2_title')?->value ?? 'Segurança Jurídica',
-            'about.value_2_description' => $settings->get('about.value_2_description')?->value ?? 'Proteção legal para ambas as partes. Garantimos que os acordos sejam válidos juridicamente e protejam os direitos de todos os envolvidos.',
-            'about.value_3_title' => $settings->get('about.value_3_title')?->value ?? 'Transparência',
-            'about.value_3_description' => $settings->get('about.value_3_description')?->value ?? 'Clareza total em limites, preferências e responsabilidades. Eliminamos mal-entendidos através de comunicação clara e documentada.',
-            'about.value_4_title' => $settings->get('about.value_4_title')?->value ?? 'Respeito',
-            'about.value_4_description' => $settings->get('about.value_4_description')?->value ?? 'Valorização da autonomia e escolhas individuais. Respeitamos todas as formas de relacionamento e orientações sexuais.',
-            'about.value_5_title' => $settings->get('about.value_5_title')?->value ?? 'Privacidade',
-            'about.value_5_description' => $settings->get('about.value_5_description')?->value ?? 'Proteção absoluta de informações pessoais. Garantimos confidencialidade total em todos os acordos e dados.',
-            'about.team_title' => $settings->get('about.team_title')?->value ?? 'Nossa Equipe',
-            'about.team_subtitle' => $settings->get('about.team_subtitle')?->value ?? 'Profissionais apaixonados por tecnologia e dedicados a criar as melhores soluções para nossos clientes.',
-            'about.team_text' => $settings->get('about.team_text')?->value ?? 'Nossa equipe é composta por profissionais experientes e apaixonados por tecnologia.',
-            'about.history_title' => $settings->get('about.history_title')?->value ?? 'Nossa História',
-            'about.history_text' => $settings->get('about.history_text')?->value ?? 'Nossa jornada começou em 2020 com uma visão clara: transformar a forma como as empresas gerenciam projetos e colaboram em equipe.',
-            'about.cta_title' => $settings->get('about.cta_title')?->value ?? 'Faça parte da nossa história',
-            'about.cta_subtitle' => $settings->get('about.cta_subtitle')?->value ?? 'Junte-se a milhares de empresas que já confiam no Consentir para gerenciar seus projetos e alcançar seus objetivos.',
-            'about.cta_button' => $settings->get('about.cta_button')?->value ?? 'Começar Agora',
-            
-            // Dados dinâmicos
-            'testimonials' => $testimonials,
-            'plans' => $plans,
-            'faqs' => $faqs,
-            
-            // Informações de contato
-            'contact_email' => $settings->get('contact_email')?->value ?? 'contato@trustme.com',
-            'contact_phone' => $settings->get('contact_phone')?->value ?? '(11) 99999-9999',
-            'contact_address' => $settings->get('contact_address')?->value ?? 'Rua das Empresas, 123 - São Paulo, SP',
-            
-            // Novas configurações de contato dinâmicas
-            'contact_email_primary' => $settings->get('contact_email_primary')?->value ?? 'contato@trustme.com',
-            'contact_email_support' => $settings->get('contact_email_support')?->value ?? 'suporte@trustme.com',
-            'contact_phone_primary' => $settings->get('contact_phone_primary')?->value ?? '(11) 99999-9999',
-            'contact_phone_secondary' => $settings->get('contact_phone_secondary')?->value ?? '(11) 3333-4444',
-            'contact_hours' => $settings->get('contact_hours')?->value ?? 'Segunda a Sexta: 9h às 18h\nSábado: 9h às 12h\nDomingo: Fechado'
-        ];
+                        'text' => 'Acesse todas as funcionalidades imediatamente'
+                    ]
+                ]),
+                
+                // CTA Section
+                'home.cta_block_title' => $settings->get('home.cta_block_title')?->value ?? 'Pronto para Começar?',
+                'home.cta_block_subtitle' => $settings->get('home.cta_block_subtitle')?->value ?? 'Junte-se a milhares de empresas que já confiam no Trust-me',
+                
+                // Configurações da página Sobre
+                'about.hero_title' => $settings->get('about.hero_title')?->value ?? 'Sobre o Consentir',
+                'about.hero_subtitle' => $settings->get('about.hero_subtitle')?->value ?? 'Somos uma empresa dedicada a transformar a forma como as equipes colaboram e gerenciam seus projetos, oferecendo soluções inovadoras e confiáveis.',
+                'about.mission_title' => $settings->get('about.mission_title')?->value ?? 'Nossa Missão',
+                'about.mission_text' => $settings->get('about.mission_text')?->value ?? 'Capacitar empresas de todos os tamanhos com ferramentas intuitivas e poderosas que simplificam a gestão de projetos e potencializam a colaboração em equipe.',
+                'about.mission_text_2' => $settings->get('about.mission_text_2')?->value ?? 'Acreditamos que a tecnologia deve ser um facilitador, não um obstáculo. Por isso, desenvolvemos soluções que são ao mesmo tempo sofisticadas e fáceis de usar.',
+                'about.values_title' => $settings->get('about.values_title')?->value ?? 'Nossos Valores',
+                'about.value_1_title' => $settings->get('about.value_1_title')?->value ?? 'Consentimento',
+                'about.value_1_description' => $settings->get('about.value_1_description')?->value ?? 'Base de todos os relacionamentos saudáveis. Acreditamos que o consentimento explícito e documentado é fundamental para relações respeitosas.',
+                'about.value_2_title' => $settings->get('about.value_2_title')?->value ?? 'Segurança Jurídica',
+                'about.value_2_description' => $settings->get('about.value_2_description')?->value ?? 'Proteção legal para ambas as partes. Garantimos que os acordos sejam válidos juridicamente e protejam os direitos de todos os envolvidos.',
+                'about.value_3_title' => $settings->get('about.value_3_title')?->value ?? 'Transparência',
+                'about.value_3_description' => $settings->get('about.value_3_description')?->value ?? 'Clareza total em limites, preferências e responsabilidades. Eliminamos mal-entendidos através de comunicação clara e documentada.',
+                'about.value_4_title' => $settings->get('about.value_4_title')?->value ?? 'Respeito',
+                'about.value_4_description' => $settings->get('about.value_4_description')?->value ?? 'Valorização da autonomia e escolhas individuais. Respeitamos todas as formas de relacionamento e orientações sexuais.',
+                'about.value_5_title' => $settings->get('about.value_5_title')?->value ?? 'Privacidade',
+                'about.value_5_description' => $settings->get('about.value_5_description')?->value ?? 'Proteção absoluta de informações pessoais. Garantimos confidencialidade total em todos os acordos e dados.',
+                'about.team_title' => $settings->get('about.team_title')?->value ?? 'Nossa Equipe',
+                'about.team_subtitle' => $settings->get('about.team_subtitle')?->value ?? 'Profissionais apaixonados por tecnologia e dedicados a criar as melhores soluções para nossos clientes.',
+                'about.team_text' => $settings->get('about.team_text')?->value ?? 'Nossa equipe é composta por profissionais experientes e apaixonados por tecnologia.',
+                'about.history_title' => $settings->get('about.history_title')?->value ?? 'Nossa História',
+                'about.history_text' => $settings->get('about.history_text')?->value ?? 'Nossa jornada começou em 2020 com uma visão clara: transformar a forma como as empresas gerenciam projetos e colaboram em equipe.',
+                'about.cta_title' => $settings->get('about.cta_title')?->value ?? 'Faça parte da nossa história',
+                'about.cta_subtitle' => $settings->get('about.cta_subtitle')?->value ?? 'Junte-se a milhares de empresas que já confiam no Consentir para gerenciar seus projetos e alcançar seus objetivos.',
+                'about.cta_button' => $settings->get('about.cta_button')?->value ?? 'Começar Agora',
+                
+                // Dados dinâmicos
+                'testimonials' => $testimonials,
+                'plans' => $plans,
+                'faqs' => $faqs,
+                
+                // Informações de contato
+                'contact_email' => $settings->get('contact_email')?->value ?? 'contato@trustme.com',
+                'contact_phone' => $settings->get('contact_phone')?->value ?? '(11) 99999-9999',
+                'contact_address' => $settings->get('contact_address')?->value ?? 'Rua das Empresas, 123 - São Paulo, SP',
+                
+                // Novas configurações de contato dinâmicas
+                'contact_email_primary' => $settings->get('contact_email_primary')?->value ?? 'contato@trustme.com',
+                'contact_email_support' => $settings->get('contact_email_support')?->value ?? 'suporte@trustme.com',
+                'contact_phone_primary' => $settings->get('contact_phone_primary')?->value ?? '(11) 99999-9999',
+                'contact_phone_secondary' => $settings->get('contact_phone_secondary')?->value ?? '(11) 3333-4444',
+                'contact_hours' => $settings->get('contact_hours')?->value ?? 'Segunda a Sexta: 9h às 18h\nSábado: 9h às 12h\nDomingo: Fechado'
+            ];
 
-        return response()->json([
-            'success' => true,
-            'data' => $content
-        ]);
+            return response()->json([
+                'success' => true,
+                'data' => $content
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Erro em getSiteContent(): ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Erro ao carregar conteúdo do site: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

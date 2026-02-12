@@ -20,6 +20,7 @@ const iconMap: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
   shield: 'shield',
   'arrow-back': 'arrow-left',
   'add-circle': 'plus-circle',
+  'plus-circle': 'plus-circle',
   'clock-outline': 'clock-outline',
   'check-circle': 'check-circle',
   'close-circle': 'close-circle',
@@ -40,6 +41,8 @@ const iconMap: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
   'shield-off': 'shield-off',
   'calendar': 'calendar',
   'link-off': 'link-off',
+  star: 'star',
+  'star-outline': 'star-outline',
 };
 
 const SafeIcon: React.FC<SafeIconProps> = ({ 

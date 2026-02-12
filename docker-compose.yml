@@ -13,3 +13,6 @@ services:
       MP_SMTP_BIND_ADDR: "0.0.0.0:1025"
       MP_WEB_BIND_ADDR: "0.0.0.0:8025"
 
+
+
+

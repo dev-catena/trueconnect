@@ -52,3 +52,38 @@ export const parseDateString = (dateString: string): Date | null => {
   return date;
 };
 
+/**
+ * Formata o código do usuário para sempre ter 6 dígitos
+ * IMPORTANTE: Se o código tiver mais de 6 dígitos, isso indica um código antigo/inválido
+ * Nesse caso, retornamos o código como está e deixamos o backend tratar
+ * Se tiver menos de 6 dígitos, preenche com zeros à esquerda
+ */
+export const formatUserCode = (code: string | number | null | undefined): string => {
+  if (!code) return '000000';
+  
+  const codeStr = String(code).trim();
+  
+  // Se tem exatamente 6 dígitos, retornar como está
+  if (codeStr.length === 6) {
+    return codeStr;
+  }
+  
+  // Se tem mais de 6 dígitos, isso é um código antigo/inválido
+  // Retornar os últimos 6 dígitos apenas para exibição, mas isso deve ser corrigido no backend
+  if (codeStr.length > 6) {
+    console.warn(`Código com mais de 6 dígitos detectado: ${codeStr}. Usando últimos 6 dígitos para exibição.`);
+    return codeStr.slice(-6);
+  }
+  
+  // Se tem menos de 6 dígitos, preencher com zeros à esquerda
+  return codeStr.padStart(6, '0');
+};
+
+/**
+ * Formata o código do usuário para exibição (com espaço no meio: XXX XXX)
+ */
+export const formatUserCodeDisplay = (code: string | number | null | undefined): string => {
+  const formatted = formatUserCode(code);
+  return formatted.replace(/(\d{3})(\d{3})/, '$1 $2');
+};
+

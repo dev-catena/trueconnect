@@ -148,7 +148,21 @@
                 -
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                <div class="flex space-x-2">
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    @click="viewUserPlans(user)"
+                    class="text-blue-600 hover:text-blue-900"
+                    title="Ver Planos"
+                  >
+                    Planos
+                  </button>
+                  <button
+                    @click="openChangePasswordModal(user)"
+                    class="text-indigo-600 hover:text-indigo-900"
+                    title="Trocar senha"
+                  >
+                    Trocar senha
+                  </button>
                   <button
                     @click="toggleUserStatus(user)"
                     class="text-yellow-600 hover:text-yellow-900"
@@ -168,6 +182,114 @@
         </table>
       </div>
     </div>
+
+    <!-- Modal Ver Planos do Usuário -->
+    <Modal :show="showPlansModal" @close="closePlansModal" :title="`Planos de ${selectedUser?.name || selectedUser?.nome_completo || 'Usuário'}`" size="large">
+      <div v-if="loadingPlans" class="p-8">
+        <Loader text="Carregando planos..." />
+      </div>
+      <div v-else-if="userPlans.length === 0" class="p-8 text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+        </svg>
+        <p class="text-gray-500">Nenhum plano encontrado para este usuário</p>
+      </div>
+      <div v-else>
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Nome do Plano
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Data de Início
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Data de Fim
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Valor Pago
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            <tr v-for="plan in userPlans" :key="plan.id" class="hover:bg-gray-50">
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm font-medium text-gray-900">
+                  {{ plan.plan?.name || 'Plano não encontrado' }}
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                {{ formatDate(plan.start_date) }}
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                {{ plan.end_date ? formatDate(plan.end_date) : '-' }}
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                R$ {{ formatPrice(plan.amount) }}
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <span
+                  class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                  :class="getPlanStatusClass(plan.status)"
+                >
+                  {{ getPlanStatusLabel(plan.status) }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+
+    <!-- Modal Trocar Senha -->
+    <Modal
+      :show="showChangePasswordModal"
+      @close="closeChangePasswordModal"
+      :title="`Trocar senha de ${userToChangePassword?.name || userToChangePassword?.nome_completo || 'Usuário'}`"
+    >
+      <form @submit.prevent="submitChangePassword" class="space-y-4">
+        <div>
+          <FormInput
+            v-model="changePasswordForm.password"
+            label="Nova senha"
+            type="password"
+            required
+            minlength="8"
+            :error="changePasswordErrors.password"
+          />
+        </div>
+        <div>
+          <FormInput
+            v-model="changePasswordForm.password_confirmation"
+            label="Confirmar nova senha"
+            type="password"
+            required
+            minlength="8"
+            :error="changePasswordErrors.password_confirmation"
+          />
+        </div>
+        <div class="flex justify-end space-x-3">
+          <button
+            type="button"
+            @click="closeChangePasswordModal"
+            class="btn-secondary"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            class="btn-primary"
+            :disabled="changingPassword"
+          >
+            {{ changingPassword ? 'Alterando...' : 'Alterar senha' }}
+          </button>
+        </div>
+      </form>
+    </Modal>
 
     <!-- Modal Criar Usuário Atendente -->
     <Modal :show="showCreateAttendantModal" @close="closeCreateModal" title="Criar Usuário Atendente">
@@ -244,6 +366,18 @@ const roleFilter = ref('')
 const showCreateAttendantModal = ref(false)
 const creating = ref(false)
 const errors = ref({})
+const showPlansModal = ref(false)
+const selectedUser = ref(null)
+const userPlans = ref([])
+const loadingPlans = ref(false)
+const showChangePasswordModal = ref(false)
+const userToChangePassword = ref(null)
+const changingPassword = ref(false)
+const changePasswordErrors = ref({})
+const changePasswordForm = ref({
+  password: '',
+  password_confirmation: ''
+})
 
 const attendantForm = ref({
   name: '',
@@ -405,7 +539,136 @@ const closeCreateModal = () => {
   errors.value = {}
 }
 
+const viewUserPlans = async (user) => {
+  selectedUser.value = user
+  showPlansModal.value = true
+  loadingPlans.value = true
+  userPlans.value = []
+  
+  try {
+    console.log('Buscando planos para usuário:', user.id, user.email)
+    const response = await api.get('/subscriptions', {
+      params: {
+        user_id: user.id
+      }
+    })
+    
+    console.log('Resposta da API de subscriptions:', response)
+    
+    // A resposta pode vir em diferentes formatos
+    let plans = []
+    
+    if (response && response.data) {
+      if (response.data.success && Array.isArray(response.data.data)) {
+        plans = response.data.data
+      } else if (Array.isArray(response.data)) {
+        plans = response.data
+      } else if (response.data.data && Array.isArray(response.data.data)) {
+        plans = response.data.data
+      }
+    } else if (Array.isArray(response)) {
+      plans = response
+    }
+    
+    console.log('Planos processados:', plans)
+    
+    // Ordenar do mais recente para o mais antigo por data de início
+    userPlans.value = plans.sort((a, b) => {
+      const dateA = new Date(a.start_date || a.created_at || 0)
+      const dateB = new Date(b.start_date || b.created_at || 0)
+      return dateB - dateA // Mais recente primeiro
+    })
+    
+    console.log('Planos ordenados:', userPlans.value)
+  } catch (error) {
+    console.error('Erro ao carregar planos do usuário:', error)
+    console.error('Detalhes do erro:', error.response?.data || error.message)
+    alert(`Erro ao carregar planos do usuário: ${error.response?.data?.message || error.message || 'Erro desconhecido'}`)
+    userPlans.value = []
+  } finally {
+    loadingPlans.value = false
+  }
+}
+
+const closePlansModal = () => {
+  showPlansModal.value = false
+  selectedUser.value = null
+  userPlans.value = []
+}
+
+const openChangePasswordModal = (user) => {
+  userToChangePassword.value = user
+  changePasswordForm.value = { password: '', password_confirmation: '' }
+  changePasswordErrors.value = {}
+  showChangePasswordModal.value = true
+}
+
+const closeChangePasswordModal = () => {
+  showChangePasswordModal.value = false
+  userToChangePassword.value = null
+  changePasswordForm.value = { password: '', password_confirmation: '' }
+  changePasswordErrors.value = {}
+}
+
+const submitChangePassword = async () => {
+  changePasswordErrors.value = {}
+  
+  if (changePasswordForm.value.password.length < 8) {
+    changePasswordErrors.value.password = 'A senha deve ter pelo menos 8 caracteres'
+    return
+  }
+  
+  if (changePasswordForm.value.password !== changePasswordForm.value.password_confirmation) {
+    changePasswordErrors.value.password_confirmation = 'As senhas não coincidem'
+    return
+  }
+
+  changingPassword.value = true
+  try {
+    await api.put(`/users/${userToChangePassword.value.id}`, {
+      password: changePasswordForm.value.password,
+      password_confirmation: changePasswordForm.value.password_confirmation
+    })
+    alert('Senha alterada com sucesso!')
+    closeChangePasswordModal()
+  } catch (error) {
+    if (error.response?.data?.errors) {
+      changePasswordErrors.value = error.response.data.errors
+    } else {
+      alert(error.response?.data?.message || 'Erro ao alterar senha')
+    }
+  } finally {
+    changingPassword.value = false
+  }
+}
+
+const formatPrice = (price) => {
+  if (!price) return '0,00'
+  return parseFloat(price).toFixed(2).replace('.', ',')
+}
+
+const getPlanStatusClass = (status) => {
+  const classes = {
+    'active': 'bg-green-100 text-green-800',
+    'inactive': 'bg-gray-100 text-gray-800',
+    'cancelled': 'bg-red-100 text-red-800',
+    'expired': 'bg-yellow-100 text-yellow-800'
+  }
+  return classes[status] || 'bg-gray-100 text-gray-800'
+}
+
+const getPlanStatusLabel = (status) => {
+  const labels = {
+    'active': 'Ativo',
+    'inactive': 'Inativo',
+    'cancelled': 'Cancelado',
+    'expired': 'Expirado'
+  }
+  return labels[status] || status
+}
+
 onMounted(() => {
   fetchUsers()
 })
 </script>
+

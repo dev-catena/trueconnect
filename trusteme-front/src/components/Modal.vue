@@ -11,7 +11,10 @@
           ></div>
           
           <!-- Modal -->
-          <div class="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 transform transition-all">
+          <div :class="[
+            'relative bg-white rounded-lg shadow-xl w-full mx-4 transform transition-all',
+            size === 'large' ? 'max-w-4xl' : size === 'medium' ? 'max-w-2xl' : 'max-w-md'
+          ]">
             <!-- Header -->
             <div v-if="title || $slots.header" class="px-6 py-4 border-b border-gray-200">
               <div class="flex items-center justify-between">
@@ -58,6 +61,11 @@ const props = defineProps({
   closable: {
     type: Boolean,
     default: true
+  },
+  size: {
+    type: String,
+    default: 'medium',
+    validator: (value) => ['small', 'medium', 'large'].includes(value)
   }
 })
 

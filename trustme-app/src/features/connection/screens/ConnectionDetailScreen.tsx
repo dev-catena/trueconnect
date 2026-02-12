@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,10 +16,28 @@ import { CustomColors } from '../../../core/colors';
 import CustomScaffold from '../../../components/CustomScaffold';
 import HeaderLine from '../../../components/HeaderLine';
 import SafeIcon from '../../../components/SafeIcon';
-import { Connection } from '../../../types';
+import { Connection, Seal } from '../../../types';
 import { formatDate, formatTimeAgo } from '../../../utils/dateParser';
 import ApiProvider from '../../../core/api/ApiProvider';
 import { useUser } from '../../../core/context/UserContext';
+
+interface UserSeal {
+  id: number;
+  selo_id?: number;
+  verificado: boolean;
+  expira_em?: string;
+  obtido_em?: string;
+  selo?: Seal;
+}
+
+interface UserSealsResponse {
+  usuario_id: number;
+  nome_completo: string;
+  ativos: UserSeal[];
+  pendentes: UserSeal[];
+  expirados: UserSeal[];
+  cancelados: UserSeal[];
+}
 
 type ConnectionDetailScreenRouteProp = RouteProp<HomeStackParamList, 'ConnectionDetail'>;
 type ConnectionDetailScreenNavigationProp = NativeStackNavigationProp<
@@ -36,6 +54,9 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
   const { connection: initialConnection } = route.params;
   const { user, refreshUserData } = useUser();
   const [isLoading, setIsLoading] = useState(false);
+  const [allSeals, setAllSeals] = useState<Seal[]>([]);
+  const [userSeals, setUserSeals] = useState<UserSealsResponse | null>(null);
+  const [loadingSeals, setLoadingSeals] = useState(false);
 
   const otherUser =
     initialConnection.solicitante_id === user?.id
@@ -45,6 +66,107 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
   const isPending = initialConnection.aceito === null || initialConnection.aceito === undefined;
   const isAccepted = initialConnection.aceito === true;
   const isRequestedByMe = initialConnection.solicitante_id === user?.id;
+
+  // Carregar selos do usuário da conexão
+  useEffect(() => {
+    if (otherUser?.id) {
+      loadUserSeals();
+      loadAllSeals();
+    }
+  }, [otherUser?.id]);
+
+  const loadAllSeals = async () => {
+    try {
+      const api = new ApiProvider(true);
+      const response = await api.get<{ success: boolean; data: Seal[] }>('selos/listar');
+      
+      if (response.success && Array.isArray(response.data)) {
+        const seals = response.data.filter((s: Seal) => s.disponivel !== false);
+        setAllSeals(seals);
+      } else if (response && response.data && Array.isArray(response.data)) {
+        setAllSeals(response.data.filter((s: Seal) => s.disponivel !== false));
+      } else if (response && response.result && Array.isArray(response.result)) {
+        setAllSeals(response.result.filter((s: Seal) => s.disponivel !== false));
+      }
+    } catch (error) {
+      console.error('Erro ao carregar selos disponíveis:', error);
+    }
+  };
+
+  const loadUserSeals = async () => {
+    if (!otherUser?.id) return;
+    
+    setLoadingSeals(true);
+    try {
+      const api = new ApiProvider(true);
+      const response = await api.get<{ success: boolean; result: UserSealsResponse }>(`usuario/${otherUser.id}/selos`);
+      
+      if (response.success && response.result) {
+        setUserSeals(response.result);
+      } else if (response && response.result) {
+        setUserSeals(response.result as UserSealsResponse);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar selos do usuário:', error);
+    } finally {
+      setLoadingSeals(false);
+    }
+  };
+
+  // Verificar se o usuário tem um selo específico
+  const getUserSealStatus = (sealId: number): 'obtido' | 'pendente' | 'expirado' | 'cancelado' | 'nao_obtido' => {
+    if (!userSeals) return 'nao_obtido';
+    
+    const ativo = userSeals.ativos.find(s => s.selo_id === sealId || s.selo?.id === sealId);
+    if (ativo) return 'obtido';
+    
+    const pendente = userSeals.pendentes.find(s => s.selo_id === sealId || s.selo?.id === sealId);
+    if (pendente) return 'pendente';
+    
+    const expirado = userSeals.expirados.find(s => s.selo_id === sealId || s.selo?.id === sealId);
+    if (expirado) return 'expirado';
+    
+    const cancelado = userSeals.cancelados.find(s => s.selo_id === sealId || s.selo?.id === sealId);
+    if (cancelado) return 'cancelado';
+    
+    return 'nao_obtido';
+  };
+
+  // Obter informações do selo do usuário
+  const getUserSealInfo = (sealId: number): UserSeal | null => {
+    if (!userSeals) return null;
+    
+    const allUserSeals = [
+      ...userSeals.ativos,
+      ...userSeals.pendentes,
+      ...userSeals.expirados,
+      ...userSeals.cancelados,
+    ];
+    
+    return allUserSeals.find(s => s.selo_id === sealId || s.selo?.id === sealId) || null;
+  };
+
+  // Construir URL completa da foto se necessário
+  const getPhotoUrl = (caminhoFoto?: string) => {
+    if (!caminhoFoto) return null;
+    if (caminhoFoto.startsWith('http')) return caminhoFoto;
+    const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
+    return BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
+  };
+
+  const photoUrl = getPhotoUrl(otherUser?.caminho_foto);
+  const userName = otherUser?.nome_completo || otherUser?.name || 'Usuário';
+  const userInitial = userName.charAt(0).toUpperCase();
+
+  // Debug: log para verificar se caminho_foto está presente
+  if (__DEV__ && otherUser) {
+    console.log('ConnectionDetailScreen - otherUser:', {
+      id: otherUser.id,
+      nome: userName,
+      caminho_foto: otherUser.caminho_foto,
+      photoUrl: photoUrl,
+    });
+  }
 
   const handleAccept = async () => {
     setIsLoading(true);
@@ -121,31 +243,64 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
     <CustomScaffold title="Detalhes da Conexão">
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <View style={styles.avatar}>
-            {otherUser?.caminho_foto ? (
-              <Image
-                source={{ uri: otherUser.caminho_foto }}
-                style={styles.avatarImage}
-              />
-            ) : (
-              <SafeIcon
-                name="account"
-                size={40}
-                color={CustomColors.white}
-              />
-            )}
-          </View>
-          <Text style={styles.userName}>
-            {otherUser?.nome_completo || otherUser?.name || 'Usuário'}
-          </Text>
-          {isAccepted && (
-            <View style={styles.statusBadge}>
-              <Text style={styles.statusText}>Conectado</Text>
+          <View style={styles.headerLeft}>
+            <View style={styles.avatar}>
+              {photoUrl ? (
+                <Image
+                  source={{ uri: photoUrl }}
+                  style={styles.avatarImage}
+                  onError={(error) => {
+                    console.error('Erro ao carregar foto do usuário:', error);
+                  }}
+                />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text style={styles.avatarInitial}>{userInitial}</Text>
+                </View>
+              )}
             </View>
-          )}
-          {isPending && !isRequestedByMe && (
-            <View style={styles.statusBadgePending}>
-              <Text style={styles.statusTextPending}>Pendente</Text>
+            <View style={styles.headerNameBlock}>
+              <Text style={styles.userName}>{userName}</Text>
+              {isAccepted && (
+                <View style={styles.statusBadge}>
+                  <Text style={styles.statusText}>Conectado</Text>
+                </View>
+              )}
+              {isPending && !isRequestedByMe && (
+                <View style={styles.statusBadgePending}>
+                  <Text style={styles.statusTextPending}>Pendente</Text>
+                </View>
+              )}
+            </View>
+          </View>
+          {isAccepted && (
+            <View style={styles.sealsCard}>
+              <Text style={styles.sealsCardTitle}>Selos</Text>
+              {loadingSeals ? (
+                <ActivityIndicator size="small" color={CustomColors.activeColor} style={styles.sealsCardLoader} />
+              ) : (
+                <ScrollView
+                  style={styles.sealsListScroll}
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                >
+                  <View style={styles.sealsList}>
+                    {(userSeals?.ativos || []).map((userSeal) => {
+                      const seal = userSeal.selo;
+                      const sealName = seal?.descricao || seal?.codigo || 'Selo';
+                      return (
+                        <View key={userSeal.id} style={styles.sealItem}>
+                          <SafeIcon name="star" size={14} color="#D4AF37" />
+                          <Text style={styles.sealItemText} numberOfLines={1}>{sealName}</Text>
+                        </View>
+                      );
+                    })}
+                    {(userSeals?.ativos?.length || 0) === 0 && !loadingSeals && (
+                      <Text style={styles.sealsEmpty}>Nenhum selo</Text>
+                    )}
+                  </View>
+                </ScrollView>
+              )}
             </View>
           )}
         </View>
@@ -193,6 +348,121 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
             </View>
           </View>
         )}
+
+        {/* Seção de Selos */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Selos</Text>
+          {loadingSeals ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="small" color={CustomColors.activeColor} />
+              <Text style={styles.loadingText}>Carregando selos...</Text>
+            </View>
+          ) : allSeals.length === 0 ? (
+            <Text style={styles.emptyText}>Nenhum selo disponível</Text>
+          ) : (
+            <View style={styles.sealsContainer}>
+              {allSeals.map((seal) => {
+                const status = getUserSealStatus(seal.id);
+                const sealInfo = getUserSealInfo(seal.id);
+                
+                return (
+                  <View
+                    key={seal.id}
+                    style={[
+                      styles.sealCard,
+                      status === 'obtido' && styles.sealCardObtained,
+                      status === 'pendente' && styles.sealCardPending,
+                      status === 'expirado' && styles.sealCardExpired,
+                      status === 'cancelado' && styles.sealCardCanceled,
+                    ]}
+                  >
+                    <View style={styles.sealHeader}>
+                      <View style={[
+                        styles.sealIconContainer,
+                        status === 'obtido' && styles.sealIconContainerObtained,
+                        status === 'pendente' && styles.sealIconContainerPending,
+                      ]}>
+                        <SafeIcon
+                          name="seal"
+                          size={24}
+                          color={
+                            status === 'obtido' ? CustomColors.successGreen :
+                            status === 'pendente' ? CustomColors.pendingYellow :
+                            status === 'expirado' ? CustomColors.activeGreyed :
+                            status === 'cancelado' ? CustomColors.vividRed :
+                            CustomColors.activeGreyed
+                          }
+                        />
+                      </View>
+                      <View style={styles.sealInfo}>
+                        <Text style={styles.sealName}>{seal.descricao || seal.codigo}</Text>
+                        <Text style={styles.sealCode}>Código: {seal.codigo}</Text>
+                      </View>
+                      {status !== 'nao_obtido' && (
+                        <View style={[
+                          styles.statusBadgeSeal,
+                          status === 'obtido' && { backgroundColor: CustomColors.successGreen + '33' },
+                          status === 'pendente' && { backgroundColor: CustomColors.pendingYellow + '33' },
+                          status === 'expirado' && { backgroundColor: CustomColors.activeGreyed + '33' },
+                          status === 'cancelado' && { backgroundColor: CustomColors.vividRed + '33' },
+                        ]}>
+                          <Text style={[
+                            styles.statusBadgeTextSeal,
+                            status === 'obtido' && { color: CustomColors.successGreen },
+                            status === 'pendente' && { color: CustomColors.pendingYellow },
+                            status === 'expirado' && { color: CustomColors.activeGreyed },
+                            status === 'cancelado' && { color: CustomColors.vividRed },
+                          ]}>
+                            {status === 'obtido' ? '✓ Obtido' :
+                             status === 'pendente' ? '⏳ Pendente' :
+                             status === 'expirado' ? '⏰ Expirado' :
+                             '✗ Cancelado'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    
+                    {/* Informações de celebração do selo */}
+                    {sealInfo && (
+                      <View style={styles.sealCelebration}>
+                        {sealInfo.obtido_em && (
+                          <View style={styles.celebrationRow}>
+                            <SafeIcon name="calendar-check" size={16} color={CustomColors.activeColor} />
+                            <Text style={styles.celebrationText}>
+                              Obtido em: {formatDate(sealInfo.obtido_em)}
+                            </Text>
+                          </View>
+                        )}
+                        {sealInfo.expira_em && (
+                          <View style={styles.celebrationRow}>
+                            <SafeIcon name="calendar-clock" size={16} color={CustomColors.activeGreyed} />
+                            <Text style={styles.celebrationText}>
+                              Expira em: {formatDate(sealInfo.expira_em)}
+                            </Text>
+                          </View>
+                        )}
+                        {sealInfo.verificado && (
+                          <View style={styles.celebrationRow}>
+                            <SafeIcon name="checkmark-circle" size={16} color={CustomColors.successGreen} />
+                            <Text style={[styles.celebrationText, { color: CustomColors.successGreen }]}>
+                              Verificado
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    )}
+                    
+                    {status === 'nao_obtido' && (
+                      <View style={styles.sealNotObtained}>
+                        <Text style={styles.notObtainedText}>Ainda não obtido</Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Informações da Conexão</Text>
@@ -267,31 +537,96 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   header: {
-    alignItems: 'center',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginBottom: 24,
     backgroundColor: CustomColors.white,
     borderRadius: 12,
-    padding: 24,
+    padding: 16,
+    gap: 16,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+    gap: 12,
+  },
+  headerNameBlock: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  sealsCard: {
+    backgroundColor: CustomColors.backgroundPrimaryColor,
+    borderRadius: 12,
+    padding: 12,
+    width: 140,
+    maxHeight: 200,
+    borderWidth: 1,
+    borderColor: CustomColors.activeGreyed + '33',
+  },
+  sealsCardTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: CustomColors.black,
+    marginBottom: 8,
+  },
+  sealsCardLoader: {
+    marginVertical: 8,
+  },
+  sealsListScroll: {
+    maxHeight: 160,
+  },
+  sealsList: {
+    gap: 6,
+  },
+  sealItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sealItemText: {
+    fontSize: 12,
+    color: CustomColors.black,
+    flex: 1,
+  },
+  sealsEmpty: {
+    fontSize: 12,
+    color: CustomColors.activeGreyed,
+    fontStyle: 'italic',
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     backgroundColor: CustomColors.activeColor,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
     overflow: 'hidden',
   },
   avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  avatarPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: CustomColors.activeColor,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarInitial: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    color: CustomColors.white,
   },
   userName: {
-    fontSize: 24,
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 8,
+    marginBottom: 4,
     color: CustomColors.black,
   },
   statusBadge: {
@@ -368,6 +703,118 @@ const styles = StyleSheet.create({
     color: CustomColors.white,
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    gap: 8,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: CustomColors.activeGreyed,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: CustomColors.activeGreyed,
+    textAlign: 'center',
+    padding: 20,
+  },
+  sealsContainer: {
+    gap: 12,
+  },
+  sealCard: {
+    backgroundColor: CustomColors.backgroundPrimaryColor,
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: CustomColors.activeGreyed + '33',
+  },
+  sealCardObtained: {
+    borderColor: CustomColors.successGreen + '66',
+    backgroundColor: CustomColors.successGreen + '11',
+  },
+  sealCardPending: {
+    borderColor: CustomColors.pendingYellow + '66',
+    backgroundColor: CustomColors.pendingYellow + '11',
+  },
+  sealCardExpired: {
+    borderColor: CustomColors.activeGreyed + '66',
+    backgroundColor: CustomColors.activeGreyed + '11',
+  },
+  sealCardCanceled: {
+    borderColor: CustomColors.vividRed + '66',
+    backgroundColor: CustomColors.vividRed + '11',
+  },
+  sealHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  sealIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: CustomColors.activeColor + '33',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  sealIconContainerObtained: {
+    backgroundColor: CustomColors.successGreen + '33',
+  },
+  sealIconContainerPending: {
+    backgroundColor: CustomColors.pendingYellow + '33',
+  },
+  sealInfo: {
+    flex: 1,
+  },
+  sealName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: CustomColors.black,
+    marginBottom: 4,
+  },
+  sealCode: {
+    fontSize: 12,
+    color: CustomColors.activeGreyed,
+  },
+  statusBadgeSeal: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusBadgeTextSeal: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sealCelebration: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: CustomColors.activeGreyed + '33',
+    gap: 6,
+  },
+  celebrationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  celebrationText: {
+    fontSize: 12,
+    color: CustomColors.black,
+  },
+  sealNotObtained: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: CustomColors.activeGreyed + '33',
+  },
+  notObtainedText: {
+    fontSize: 12,
+    color: CustomColors.activeGreyed,
+    fontStyle: 'italic',
   },
 });
 

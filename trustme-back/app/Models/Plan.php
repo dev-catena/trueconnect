@@ -15,6 +15,7 @@ class Plan extends Model
         'monthly_price',
         'semiannual_price',
         'annual_price',
+        'one_time_price',
         'seals_limit',
         'contracts_limit',
         'features',
@@ -27,6 +28,7 @@ class Plan extends Model
         'monthly_price' => 'decimal:2',
         'semiannual_price' => 'decimal:2',
         'annual_price' => 'decimal:2',
+        'one_time_price' => 'decimal:2',
     ];
 
     public function subscriptions()
@@ -40,6 +42,7 @@ class Plan extends Model
             'monthly' => $this->monthly_price,
             'semiannual' => $this->semiannual_price,
             'annual' => $this->annual_price,
+            'one_time' => $this->one_time_price ?? 0,
             default => $this->monthly_price,
         };
     }

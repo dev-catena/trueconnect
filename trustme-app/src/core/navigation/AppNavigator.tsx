@@ -26,10 +26,12 @@ import ResetPasswordScreen from '../../features/forgotPassword/screens/ResetPass
 import MySealsScreen from '../../features/profile/screens/MySealsScreen';
 import MyConnectionsScreen from '../../features/profile/screens/MyConnectionsScreen';
 import MyContractsScreen from '../../features/profile/screens/MyContractsScreen';
+import MyPlansScreen from '../../features/profile/screens/MyPlansScreen';
 import PlansScreen from '../../features/plans/screens/PlansScreen';
 import PlanDetailScreen from '../../features/plans/screens/PlanDetailScreen';
 import SubscriptionScreen from '../../features/plans/screens/SubscriptionScreen';
 import StorePurchaseMockupScreen from '../../features/plans/screens/StorePurchaseMockupScreen';
+import AdditionalPurchaseQuantityScreen from '../../features/plans/screens/AdditionalPurchaseQuantityScreen';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
@@ -44,6 +46,10 @@ const HomeStackNavigator = () => {
       <HomeStack.Screen name="Seals" component={SealsScreen} />
       <HomeStack.Screen name="SealAcquisition" component={SealAcquisitionScreen} />
       <HomeStack.Screen name="Payment" component={PaymentScreen} />
+      <HomeStack.Screen name="Plans" component={PlansScreen} />
+      <HomeStack.Screen name="Contracts" component={ContractsScreen} />
+      <HomeStack.Screen name="NewContract" component={NewContractScreen} />
+      <HomeStack.Screen name="ContractDetail" component={ContractDetailScreen} />
     </HomeStack.Navigator>
   );
 };
@@ -123,13 +129,39 @@ export const AppNavigator = () => {
         {user ? (
           <>
             <RootStack.Screen name="Main" component={MainTabsNavigator} />
-            <RootStack.Screen name="Profile" component={ProfileScreen} />
-            <RootStack.Screen name="MySeals" component={MySealsScreen} />
-            <RootStack.Screen name="MyConnections" component={MyConnectionsScreen} />
-            <RootStack.Screen name="MyContracts" component={MyContractsScreen} />
-            <RootStack.Screen name="Plans" component={PlansScreen} />
+            <RootStack.Screen 
+              name="Profile" 
+              component={ProfileScreen}
+              options={{ animationEnabled: false }}
+            />
+            <RootStack.Screen 
+              name="MySeals" 
+              component={MySealsScreen}
+              options={{ animationEnabled: false }}
+            />
+            <RootStack.Screen 
+              name="MyConnections" 
+              component={MyConnectionsScreen}
+              options={{ animationEnabled: false }}
+            />
+            <RootStack.Screen 
+              name="MyContracts" 
+              component={MyContractsScreen}
+              options={{ animationEnabled: false }}
+            />
+            <RootStack.Screen 
+              name="MyPlans" 
+              component={MyPlansScreen}
+              options={{ animationEnabled: false }}
+            />
+            <RootStack.Screen 
+              name="Plans" 
+              component={PlansScreen}
+              options={{ animationEnabled: false }}
+            />
             <RootStack.Screen name="PlanDetail" component={PlanDetailScreen} />
             <RootStack.Screen name="Subscription" component={SubscriptionScreen} />
+            <RootStack.Screen name="AdditionalPurchaseQuantity" component={AdditionalPurchaseQuantityScreen} />
             <RootStack.Screen name="StorePurchaseMockup" component={StorePurchaseMockupScreen} />
           </>
         ) : (

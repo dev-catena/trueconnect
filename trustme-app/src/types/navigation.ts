@@ -12,10 +12,12 @@ export type RootStackParamList = {
   MySeals: undefined;
   MyConnections: undefined;
   MyContracts: undefined;
+  MyPlans: undefined;
   Plans: undefined;
-  PlanDetail: { plan: any; billingCycle: 'monthly' | 'semiannual' | 'annual' };
-  Subscription: { plan: any; billingCycle: 'monthly' | 'semiannual' | 'annual' };
-  StorePurchaseMockup: { plan: any; billingCycle: 'monthly' | 'semiannual' | 'annual'; price: number };
+  PlanDetail: { plan: any; billingCycle: 'monthly' | 'semiannual' | 'annual' | 'one_time' };
+  Subscription: { plan: any; billingCycle: 'monthly' | 'semiannual' | 'annual' | 'one_time' };
+  AdditionalPurchaseQuantity: { type: 'contracts' | 'connections' };
+  StorePurchaseMockup: { plan: any | null; billingCycle: 'monthly' | 'semiannual' | 'annual' | 'one_time'; price: number; seal?: any; requestId?: number | string; isSeal?: boolean; additionalPurchase?: { purchaseId: number; type: 'contracts' | 'connections'; quantity: number } };
 };
 
 export type MainTabParamList = {
@@ -33,6 +35,10 @@ export type HomeStackParamList = {
   Seals: undefined;
   SealAcquisition: { selo: any };
   Payment: { selo: any; requestId?: number | string };
+  Plans: undefined;
+  Contracts: { initialFilter?: string };
+  NewContract: undefined;
+  ContractDetail: { contract: Contract };
 };
 
 export type ContractsStackParamList = {

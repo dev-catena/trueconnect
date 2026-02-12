@@ -114,3 +114,6 @@ npx expo start --port 8083
 - Use o caminho completo do Node.js 20
 
 
+
+
+

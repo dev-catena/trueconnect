@@ -22,4 +22,14 @@ class ContratoTipo extends Model
         'created_at',
         'updated_at'
     ];
+
+    public function clausulaTipoContratos()
+    {
+        return $this->hasMany(ClausulaTipoContrato::class, 'contrato_tipo_id');
+    }
+
+    public function perguntas()
+    {
+        return $this->hasMany(Pergunta::class, 'contrato_tipo_id');
+    }
 }

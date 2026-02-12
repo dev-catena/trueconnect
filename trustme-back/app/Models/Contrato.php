@@ -20,7 +20,8 @@ class Contrato extends Model
         'status',
         'duracao',
         'dt_inicio',
-        'dt_fim'
+        'dt_fim',
+        'dt_prazo_assinatura'
     ];
 
     protected $casts = [

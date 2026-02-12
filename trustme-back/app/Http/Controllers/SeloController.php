@@ -6,6 +6,7 @@ use App\Models\Selo;
 use App\Models\SealRequest;
 use App\Models\SealDocument;
 use App\Models\SealType;
+use App\Models\UserSeal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Schema;
@@ -469,5 +470,90 @@ class SeloController extends Controller
                 'message' => 'Pagamento processado com sucesso. Seu selo está aguardando análise.'
             ]);
         }
+    }
+
+    /**
+     * Confirma o pagamento de um selo via loja (App Store / Google Play).
+     * Cria UserSeal para o selo aparecer na lista do usuário.
+     * Se o selo não requer aprovação manual, aprova automaticamente.
+     */
+    public function confirmStorePayment(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'seal_request_id' => 'required|exists:seal_requests,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $user = Auth::user();
+        $sealRequest = SealRequest::with('sealType')->find($request->seal_request_id);
+
+        if (!$sealRequest || $sealRequest->user_id !== $user->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Solicitação não encontrada'
+            ], 404);
+        }
+
+        if ($sealRequest->status === 'approved') {
+            return response()->json([
+                'success' => true,
+                'message' => 'Pagamento já confirmado. O selo já está ativo.'
+            ]);
+        }
+
+        $sealType = $sealRequest->sealType;
+        $requiresApproval = !$sealType || $sealType->requires_manual_approval;
+
+        if ($requiresApproval) {
+            // Selo requer aprovação manual: criar UserSeal pendente para aparecer na lista
+            UserSeal::updateOrCreate(
+                [
+                    'user_id' => $sealRequest->user_id,
+                    'seal_type_id' => $sealRequest->seal_type_id
+                ],
+                [
+                    'status' => 'pending',
+                    'approved_at' => null,
+                    'approved_by' => null,
+                    'expires_at' => null,
+                ]
+            );
+            $sealRequest->update(['status' => 'under_review']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Pagamento confirmado. Seu selo está aguardando análise e aparecerá em "Pendentes".'
+            ]);
+        }
+
+        // Selo não requer aprovação: aprovar automaticamente
+        UserSeal::updateOrCreate(
+            [
+                'user_id' => $sealRequest->user_id,
+                'seal_type_id' => $sealRequest->seal_type_id
+            ],
+            [
+                'status' => 'approved',
+                'approved_at' => now(),
+                'approved_by' => $user->id,
+                'expires_at' => null,
+            ]
+        );
+        $sealRequest->update([
+            'status' => 'approved',
+            'reviewed_by' => $user->id,
+            'reviewed_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pagamento confirmado. Seu selo foi ativado com sucesso!'
+        ]);
     }
 }

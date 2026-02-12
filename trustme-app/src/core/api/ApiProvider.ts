@@ -135,7 +135,19 @@ function createApiInstance(useToken: boolean = true): IApiProvider {
         console.log(`ApiProvider - GET ${endpoint}`, params);
         const response = await axiosInstance.get(endpoint, { params });
         
+        if (IS_DEV) {
+          console.log(`ApiProvider - GET Response ${endpoint}:`, {
+            status: response.status,
+            data: response.data,
+            dataType: typeof response.data,
+            isArray: Array.isArray(response.data),
+          });
+        }
+        
         if (response.data === null || response.data === undefined) {
+          if (IS_DEV) {
+            console.warn(`ApiProvider - GET ${endpoint}: response.data é null ou undefined`);
+          }
           return {} as T;
         }
         
@@ -146,7 +158,14 @@ function createApiInstance(useToken: boolean = true): IApiProvider {
         return response.data;
       } catch (error: any) {
         console.error(`ApiProvider - GET Error: ${endpoint}`, error);
-        return {} as T;
+        console.error(`ApiProvider - GET Error Details:`, {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          message: error.message,
+        });
+        // Não retornar {} silenciosamente, deixar o erro propagar
+        throw error;
       }
     },
 

@@ -19,6 +19,7 @@ class SubscriptionController extends Controller
             ->when($request->status, function($query, $status) {
                 return $query->where('status', $status);
             })
+            ->orderBy('start_date', 'desc')
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -70,6 +71,8 @@ class SubscriptionController extends Controller
             'monthly' => $startDate->copy()->addMonth(),
             'semiannual' => $startDate->copy()->addMonths(6),
             'annual' => $startDate->copy()->addYear(),
+            'one_time' => null, // Pagamento único não tem data de fim
+            default => $startDate->copy()->addMonth(),
         };
 
         $subscription = Subscription::create([
@@ -154,6 +157,76 @@ class SubscriptionController extends Controller
             'success' => true,
             'data' => $subscriptions
         ]);
+    }
+
+    public function confirmStorePurchase(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'plan_id' => 'required|exists:plans,id',
+            'billing_cycle' => 'required|in:monthly,semiannual,annual,one_time',
+            'payment_method' => 'nullable|string|in:app_store,google_play',
+            'payment_id' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $user = $request->user();
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Usuário não autenticado'
+            ], 401);
+        }
+
+        $plan = Plan::find($request->plan_id);
+        if (!$plan) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Plano não encontrado'
+            ], 404);
+        }
+
+        $amount = $plan->getPriceForCycle($request->billing_cycle);
+        
+        $startDate = Carbon::now();
+        
+        // Para one_time, não há data de fim (null) ou é igual à data de início
+        $endDate = match($request->billing_cycle) {
+            'monthly' => $startDate->copy()->addMonth(),
+            'semiannual' => $startDate->copy()->addMonths(6),
+            'annual' => $startDate->copy()->addYear(),
+            'one_time' => null, // Pagamento único não tem data de fim
+            default => $startDate->copy()->addMonth(),
+        };
+
+        // Cancelar assinaturas ativas anteriores do usuário
+        Subscription::where('user_id', $user->id)
+            ->where('status', 'active')
+            ->update(['status' => 'cancelled']);
+
+        $subscription = Subscription::create([
+            'user_id' => $user->id,
+            'plan_id' => $request->plan_id,
+            'billing_cycle' => $request->billing_cycle,
+            'amount' => $amount,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'payment_method' => $request->payment_method ?? 'app_store',
+            'payment_id' => $request->payment_id,
+            'payment_data' => $request->all(),
+            'status' => 'active',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $subscription->load('plan'),
+            'message' => 'Assinatura confirmada com sucesso'
+        ], 201);
     }
 
     public function cancelUserSubscription(Request $request, $id)

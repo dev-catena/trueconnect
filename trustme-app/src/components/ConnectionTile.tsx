@@ -18,30 +18,55 @@ const ConnectionTile: React.FC<ConnectionTileProps> = ({
   onAccept,
   onReject,
 }) => {
-  const otherUser = connection.solicitante || connection.destinatario;
+  // Determinar qual usuário é o "outro" (não o usuário atual)
+  // Se connection.solicitante existe e tem dados, usar ele, senão usar destinatario
+  const otherUser = connection.solicitante?.id ? connection.solicitante : (connection.destinatario || connection.solicitante);
   const isPending = connection.aceito === null || connection.aceito === undefined;
   const isAccepted = connection.aceito === true;
+
+  // Construir URL completa da foto se necessário
+  const getPhotoUrl = (caminhoFoto?: string) => {
+    if (!caminhoFoto) return null;
+    if (caminhoFoto.startsWith('http')) return caminhoFoto;
+    const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
+    return BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
+  };
+
+  const photoUrl = getPhotoUrl(otherUser?.caminho_foto);
+  const userName = otherUser?.nome_completo || otherUser?.name || 'Usuário';
+  const userInitial = userName.charAt(0).toUpperCase();
+
+  // Debug: log para verificar se caminho_foto está presente
+  if (__DEV__ && otherUser) {
+    console.log('ConnectionTile - otherUser:', {
+      id: otherUser.id,
+      nome: userName,
+      caminho_foto: otherUser.caminho_foto,
+      photoUrl: photoUrl,
+    });
+  }
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
       <View style={styles.content}>
         <View style={styles.avatar}>
-          {otherUser?.caminho_foto ? (
+          {photoUrl ? (
             <Image
-              source={{ uri: otherUser.caminho_foto }}
+              source={{ uri: photoUrl }}
               style={styles.avatarImage}
+              onError={(error) => {
+                console.error('Erro ao carregar foto do usuário:', error);
+              }}
             />
           ) : (
-            <SafeIcon
-              name="account"
-              size={28}
-              color={CustomColors.white}
-            />
+            <View style={styles.avatarPlaceholder}>
+              <Text style={styles.avatarInitial}>{userInitial}</Text>
+            </View>
           )}
         </View>
         <View style={styles.info}>
           <Text style={styles.name}>
-            {otherUser?.nome_completo || otherUser?.name || 'Usuário'}
+            {userName}
           </Text>
           <Text style={styles.email}>{otherUser?.email}</Text>
           {connection.created_at && (
@@ -112,6 +137,19 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
+  },
+  avatarPlaceholder: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: CustomColors.activeColor,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarInitial: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: CustomColors.white,
   },
   info: {
     flex: 1,

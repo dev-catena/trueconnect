@@ -50,12 +50,17 @@ export interface Contract {
   duracao: number;
   dt_inicio: string;
   dt_fim: string;
+  dt_prazo_assinatura?: string | null;
   contratante_id: number;
   contrato_tipo_id: number;
   tipo?: ContractType;
   contratante?: User;
   participantes?: ContractParticipant[];
   clausulas?: Clause[];
+  todas_clausulas_aprovadas?: boolean; // Deprecated - usar todas_clausulas_coincidentes
+  todas_clausulas_coincidentes?: boolean;
+  clausulas_em_desacordo?: number[];
+  pode_assinar?: boolean;
 }
 
 export interface ContractType {
@@ -77,6 +82,9 @@ export interface Clause {
   nome: string;
   descricao: string;
   sexual: boolean;
+  pendente_para?: number[];
+  aceito_por?: number[];
+  recusado_por?: number[];
 }
 
 // Connection Types
@@ -103,5 +111,7 @@ export interface ApiResponse<T = any> {
   result?: T;
   errors?: any[];
 }
+
+
 
 

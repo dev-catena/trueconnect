@@ -1,350 +1,158 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Image, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { HomeStackParamList } from '../../../types/navigation';
+import { HomeStackParamList, RootStackParamList } from '../../../types/navigation';
 import { CustomColors } from '../../../core/colors';
 import ApiProvider from '../../../core/api/ApiProvider';
 import SafeIcon from '../../../components/SafeIcon';
-import PixPaymentView from '../components/PixPaymentView';
-import CardPaymentView from '../components/CardPaymentView';
+import CustomScaffold from '../../../components/CustomScaffold';
 
 type PaymentScreenRouteProp = RouteProp<HomeStackParamList, 'Payment'>;
 type PaymentScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'Payment'>;
-
-type PaymentMethod = 'pix' | 'card' | null;
-
-interface PixData {
-  qr_code: string;
-  code: string;
-  expires_at: string;
-}
-
-interface CardData {
-  cardNumber: string;
-  cardHolder: string;
-  expiryDate: string;
-  cvv: string;
-  installments: number;
-}
+type RootNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const PaymentScreen: React.FC = () => {
   const navigation = useNavigation<PaymentScreenNavigationProp>();
+  const rootNavigation = useNavigation<RootNavigationProp>();
   const route = useRoute<PaymentScreenRouteProp>();
   const { selo, requestId } = route.params;
-
-  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(null);
   const [processing, setProcessing] = useState(false);
-  const [pixData, setPixData] = useState<PixData | null>(null);
-  const [showCardForm, setShowCardForm] = useState(false);
 
-  const handlePaymentMethodSelection = async () => {
-    if (!selectedMethod) {
-      Alert.alert('Atenção', 'Por favor, selecione um método de pagamento.');
-      return;
-    }
+  // Resetar loading ao voltar para a tela (evita spinner travado)
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => setProcessing(false);
+    }, [])
+  );
 
-    setProcessing(true);
+  const amount = selo.custo_obtencao != null && typeof selo.custo_obtencao === 'number' 
+    ? selo.custo_obtencao 
+    : 0;
 
-    try {
-      const api = new ApiProvider();
-      const amount = selo.custo_obtencao != null && typeof selo.custo_obtencao === 'number' 
-        ? selo.custo_obtencao 
-        : 0;
-
-      if (selectedMethod === 'pix') {
-        // Gerar dados PIX
-        const response = await api.post('selos/pagamento', {
-          seal_request_id: requestId,
-          payment_method: 'pix',
-          amount: amount,
-        });
-
-        if (response.success && response.data?.pix_data) {
-          setPixData(response.data.pix_data);
-        } else {
-          Alert.alert('Erro', response.message || 'Não foi possível gerar o código PIX.');
-        }
-      } else if (selectedMethod === 'card') {
-        // Mostrar formulário de cartão
-        setShowCardForm(true);
-      }
-    } catch (error: any) {
-      console.error('Erro ao processar pagamento:', error);
-      Alert.alert('Erro', error.response?.data?.message || 'Não foi possível processar o pagamento.');
-    } finally {
-      setProcessing(false);
-    }
+  const formatPrice = (price: number | null | undefined): string => {
+    const numPrice = price != null && !isNaN(Number(price)) ? Number(price) : 0;
+    return `R$ ${numPrice.toFixed(2).replace('.', ',')}`;
   };
 
-  const handleCardPayment = async (cardData: CardData) => {
+  const handleStorePurchase = async () => {
     setProcessing(true);
-
+    
     try {
-      const api = new ApiProvider();
-      const amount = selo.custo_obtencao != null && typeof selo.custo_obtencao === 'number' 
-        ? selo.custo_obtencao 
-        : 0;
-
-      const response = await api.post('selos/pagamento', {
-        seal_request_id: requestId,
-        payment_method: 'credit_card',
-        amount: amount,
-        card_data: cardData,
+      // MOCKUP: Em produção, aqui seria a integração real com react-native-iap ou similar
+      // que abriria a interface nativa da App Store (iOS) ou Google Play (Android)
+      
+      // Navegar diretamente para mockup da interface da loja
+      rootNavigation.navigate('StorePurchaseMockup', {
+        plan: null, // Não é um plano
+        billingCycle: 'monthly', // Não usado para selos, mas obrigatório no tipo
+        price: amount,
+        seal: selo,
+        requestId: requestId,
+        isSeal: true, // Flag para indicar que é pagamento de selo
       });
-
-      if (response.success) {
-        Alert.alert(
-          'Sucesso',
-          'Pagamento processado com sucesso! Seu selo está aguardando análise.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                navigation.navigate('Seals');
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert('Erro', response.message || 'Não foi possível processar o pagamento.');
-      }
     } catch (error: any) {
-      console.error('Erro ao processar pagamento:', error);
-      Alert.alert('Erro', error.response?.data?.message || 'Não foi possível processar o pagamento.');
-    } finally {
+      console.error('Erro ao iniciar compra:', error);
+      Alert.alert('Erro', 'Não foi possível iniciar o processo de compra.');
       setProcessing(false);
     }
   };
-
-  // Se PIX foi gerado, mostrar tela de PIX
-  if (pixData) {
-    return (
-      <PixPaymentView
-        pixCode={pixData.code}
-        qrCode={pixData.qr_code}
-        amount={selo.custo_obtencao != null && typeof selo.custo_obtencao === 'number' ? selo.custo_obtencao : 0}
-        expiresAt={pixData.expires_at}
-        onBack={() => {
-          setPixData(null);
-          setSelectedMethod(null);
-        }}
-      />
-    );
-  }
-
-  // Se cartão foi selecionado, mostrar formulário de cartão
-  if (showCardForm) {
-    return (
-      <CardPaymentView
-        amount={selo.custo_obtencao != null && typeof selo.custo_obtencao === 'number' ? selo.custo_obtencao : 0}
-        onBack={() => {
-          setShowCardForm(false);
-          setSelectedMethod(null);
-        }}
-        onSubmit={handleCardPayment}
-      />
-    );
-  }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <View style={styles.logoContainer}>
-            <Image
-              source={require('../../../../assets/images/trustme-logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-              tintColor={CustomColors.white}
-            />
-          </View>
-          <Text style={styles.headerTitle}>Pagamento</Text>
-        </View>
-        <View style={styles.placeholder} />
-      </View>
-
+    <CustomScaffold title="Pagamento do Selo" showBackButton>
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Resumo do Selo */}
         <View style={styles.summaryCard}>
           <View style={styles.sealIconContainer}>
-            <SafeIcon name="seal" size={32} color={CustomColors.activeColor} />
+            <SafeIcon name="seal" size={48} color={CustomColors.activeColor} />
           </View>
           <View style={styles.summaryInfo}>
             <Text style={styles.summaryTitle}>{selo.nome || selo.descricao || selo.codigo}</Text>
             <Text style={styles.summaryCode}>Código: {selo.codigo}</Text>
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>Total:</Text>
-              <Text style={styles.priceValue}>
-                R$ {selo.custo_obtencao != null && typeof selo.custo_obtencao === 'number' 
-                  ? selo.custo_obtencao.toFixed(2).replace('.', ',') 
-                  : '0,00'}
-              </Text>
+              <Text style={styles.priceValue}>{formatPrice(amount)}</Text>
             </View>
           </View>
         </View>
 
-        {/* Métodos de Pagamento */}
-        <View style={styles.paymentSection}>
-          <Text style={styles.sectionTitle}>Selecione o método de pagamento</Text>
-
-          {/* PIX */}
-          <TouchableOpacity
-            style={[
-              styles.paymentMethodCard,
-              selectedMethod === 'pix' && styles.paymentMethodCardSelected,
-            ]}
-            onPress={() => setSelectedMethod('pix')}
-          >
-            <View style={styles.paymentMethodContent}>
-              <View style={styles.paymentMethodIcon}>
-                <SafeIcon
-                  name="qr-code"
-                  size={32}
-                  color={selectedMethod === 'pix' ? CustomColors.white : CustomColors.activeColor}
-                />
-              </View>
-              <View style={styles.paymentMethodInfo}>
-                <Text
-                  style={[
-                    styles.paymentMethodName,
-                    selectedMethod === 'pix' && styles.paymentMethodNameSelected,
-                  ]}
-                >
-                  PIX
-                </Text>
-                <Text
-                  style={[
-                    styles.paymentMethodDescription,
-                    selectedMethod === 'pix' && styles.paymentMethodDescriptionSelected,
-                  ]}
-                >
-                  Aprovação instantânea
-                </Text>
-              </View>
-              {selectedMethod === 'pix' && (
-                <SafeIcon name="check-circle" size={24} color={CustomColors.white} />
-              )}
-            </View>
-          </TouchableOpacity>
-
-          {/* Cartão de Crédito */}
-          <TouchableOpacity
-            style={[
-              styles.paymentMethodCard,
-              selectedMethod === 'card' && styles.paymentMethodCardSelected,
-            ]}
-            onPress={() => setSelectedMethod('card')}
-          >
-            <View style={styles.paymentMethodContent}>
-              <View style={styles.paymentMethodIcon}>
-                <SafeIcon
-                  name="card"
-                  size={32}
-                  color={selectedMethod === 'card' ? CustomColors.white : CustomColors.activeColor}
-                />
-              </View>
-              <View style={styles.paymentMethodInfo}>
-                <Text
-                  style={[
-                    styles.paymentMethodName,
-                    selectedMethod === 'card' && styles.paymentMethodNameSelected,
-                  ]}
-                >
-                  Cartão de Crédito
-                </Text>
-                <Text
-                  style={[
-                    styles.paymentMethodDescription,
-                    selectedMethod === 'card' && styles.paymentMethodDescriptionSelected,
-                  ]}
-                >
-                  Parcelamento disponível
-                </Text>
-              </View>
-              {selectedMethod === 'card' && (
-                <SafeIcon name="check-circle" size={24} color={CustomColors.white} />
-              )}
-            </View>
-          </TouchableOpacity>
+        {/* Store Info */}
+        <View style={styles.infoCard}>
+          <View style={styles.infoHeader}>
+            <SafeIcon 
+              name={Platform.OS === 'ios' ? 'card' : 'card'} 
+              size={24} 
+              color={CustomColors.activeColor} 
+            />
+            <Text style={styles.infoTitle}>
+              {Platform.OS === 'ios' ? 'App Store' : 'Google Play Store'}
+            </Text>
+          </View>
+          <Text style={styles.infoText}>
+            O pagamento será processado através da {Platform.OS === 'ios' ? 'App Store' : 'Google Play Store'}.
+            O valor será cobrado na sua conta da loja.
+          </Text>
         </View>
 
-        {/* Botão Continuar */}
+        {/* Benefits */}
+        <View style={styles.benefitsCard}>
+          <Text style={styles.benefitsTitle}>Informações do Pagamento</Text>
+          <View style={styles.benefitItem}>
+            <SafeIcon name="check-circle" size={20} color={CustomColors.activeColor} />
+            <Text style={styles.benefitText}>Pagamento seguro através da loja oficial</Text>
+          </View>
+          <View style={styles.benefitItem}>
+            <SafeIcon name="check-circle" size={20} color={CustomColors.activeColor} />
+            <Text style={styles.benefitText}>Processamento imediato</Text>
+          </View>
+          <View style={styles.benefitItem}>
+            <SafeIcon name="check-circle" size={20} color={CustomColors.activeColor} />
+            <Text style={styles.benefitText}>Selo será analisado após confirmação do pagamento</Text>
+          </View>
+        </View>
+
+        {/* Pay Button */}
         <TouchableOpacity
-          style={[styles.payButton, (!selectedMethod || processing) && styles.payButtonDisabled]}
-          onPress={handlePaymentMethodSelection}
-          disabled={!selectedMethod || processing}
+          style={[styles.payButton, processing && styles.payButtonDisabled]}
+          onPress={handleStorePurchase}
+          disabled={processing}
         >
           {processing ? (
-            <ActivityIndicator color={CustomColors.activeColor} />
+            <ActivityIndicator color={CustomColors.white} />
           ) : (
             <>
-              <Text style={styles.payButtonText}>Continuar</Text>
-              <SafeIcon name="arrow-forward" size={20} color={CustomColors.activeColor} />
+              <SafeIcon name="card" size={24} color={CustomColors.white} />
+              <Text style={styles.payButtonText}>
+                Pagar na {Platform.OS === 'ios' ? 'App Store' : 'Google Play'}
+              </Text>
             </>
           )}
         </TouchableOpacity>
+
+        {/* Terms */}
+        <View style={styles.termsContainer}>
+          <Text style={styles.termsText}>
+            Ao confirmar o pagamento, você será redirecionado para a {Platform.OS === 'ios' ? 'App Store' : 'Google Play Store'}.
+            O pagamento será processado pela loja e seu selo será analisado após a confirmação.
+          </Text>
+        </View>
       </ScrollView>
-    </SafeAreaView>
+    </CustomScaffold>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: CustomColors.backgroundPrimaryColor,
-  },
-  header: {
-    backgroundColor: CustomColors.activeColor,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  backButton: {
-    padding: 4,
-  },
-  headerCenter: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  logoContainer: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logo: {
-    width: 40,
-    height: 40,
-    tintColor: CustomColors.white,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: CustomColors.white,
-  },
-  placeholder: {
-    width: 32,
-  },
   content: {
     flex: 1,
+    padding: 16,
   },
   summaryCard: {
     backgroundColor: CustomColors.white,
-    margin: 16,
-    padding: 16,
+    padding: 20,
     borderRadius: 12,
-    flexDirection: 'row',
+    marginBottom: 16,
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -352,16 +160,17 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   sealIconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: CustomColors.backgroundPrimaryColor,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginBottom: 16,
   },
   summaryInfo: {
-    flex: 1,
+    width: '100%',
+    alignItems: 'center',
   },
   summaryTitle: {
     fontSize: 18,
@@ -377,95 +186,104 @@ const styles = StyleSheet.create({
   priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 8,
+    justifyContent: 'center',
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: CustomColors.backgroundPrimaryColor,
+    width: '100%',
   },
   priceLabel: {
     fontSize: 16,
     color: CustomColors.black,
+    marginRight: 8,
   },
   priceValue: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
     color: CustomColors.activeColor,
   },
-  paymentSection: {
-    padding: 16,
+  infoCard: {
+    backgroundColor: CustomColors.backgroundPrimaryColor,
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
   },
-  sectionTitle: {
+  infoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  infoTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: CustomColors.black,
+    marginLeft: 12,
+  },
+  infoText: {
+    fontSize: 14,
+    color: CustomColors.activeGreyed,
+    lineHeight: 20,
+  },
+  benefitsCard: {
+    backgroundColor: CustomColors.white,
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  benefitsTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: CustomColors.black,
     marginBottom: 16,
   },
-  paymentMethodCard: {
-    backgroundColor: CustomColors.white,
-    borderRadius: 12,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: CustomColors.backgroundPrimaryColor,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  paymentMethodCardSelected: {
-    borderColor: CustomColors.activeColor,
-    backgroundColor: CustomColors.activeColor,
-  },
-  paymentMethodContent: {
+  benefitItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
+    marginBottom: 12,
   },
-  paymentMethodIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: CustomColors.backgroundPrimaryColor,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  paymentMethodInfo: {
-    flex: 1,
-  },
-  paymentMethodName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: CustomColors.black,
-    marginBottom: 4,
-  },
-  paymentMethodNameSelected: {
-    color: CustomColors.white,
-  },
-  paymentMethodDescription: {
+  benefitText: {
     fontSize: 14,
-    color: CustomColors.activeGreyed,
+    color: CustomColors.black,
+    marginLeft: 12,
   },
-  paymentMethodDescriptionSelected: {
-    color: CustomColors.white,
+  termsContainer: {
+    padding: 16,
+    marginBottom: 16,
+  },
+  termsText: {
+    fontSize: 12,
+    color: CustomColors.activeGreyed,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   payButton: {
+    backgroundColor: CustomColors.activeColor,
+    borderRadius: 12,
+    padding: 18,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: CustomColors.pastelPurple,
-    borderRadius: 12,
-    paddingVertical: 16,
-    margin: 16,
-    gap: 8,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    gap: 12,
   },
   payButtonDisabled: {
     opacity: 0.6,
   },
   payButtonText: {
+    color: CustomColors.white,
     fontSize: 18,
     fontWeight: 'bold',
-    color: CustomColors.activeColor,
   },
 });
 

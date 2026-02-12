@@ -65,3 +65,6 @@ npm install @react-native-async-storage/async-storage
 5. Adicionar testes
 
 
+
+
+

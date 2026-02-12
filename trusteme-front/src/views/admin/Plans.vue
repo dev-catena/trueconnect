@@ -39,8 +39,24 @@
         </div>
 
         <div class="mb-4">
-          <span class="text-3xl font-bold text-trust-600">R$ {{ formatPrice(plan.price) }}</span>
-          <span class="text-gray-600">/{{ plan.billing_cycle === 'monthly' ? 'mês' : 'ano' }}</span>
+          <div class="space-y-1">
+            <div v-if="plan.monthly_price != null && plan.monthly_price !== ''">
+              <span class="text-lg font-bold text-trust-600">R$ {{ formatPrice(plan.monthly_price) }}</span>
+              <span class="text-gray-600 text-sm">/mês</span>
+            </div>
+            <div v-if="plan.semiannual_price != null && plan.semiannual_price !== ''">
+              <span class="text-lg font-bold text-trust-600">R$ {{ formatPrice(plan.semiannual_price) }}</span>
+              <span class="text-gray-600 text-sm">/semestre</span>
+            </div>
+            <div v-if="plan.annual_price != null && plan.annual_price !== ''">
+              <span class="text-lg font-bold text-trust-600">R$ {{ formatPrice(plan.annual_price) }}</span>
+              <span class="text-gray-600 text-sm">/ano</span>
+            </div>
+            <div v-if="plan.one_time_price != null && plan.one_time_price !== '' && !isNaN(plan.one_time_price) && plan.one_time_price > 0">
+              <span class="text-lg font-bold text-trust-600">R$ {{ formatPrice(plan.one_time_price) }}</span>
+              <span class="text-gray-600 text-sm">pagamento único</span>
+            </div>
+          </div>
         </div>
 
         <div class="mb-4">
@@ -106,29 +122,47 @@
           <p v-if="errors.description" class="mt-1 text-sm text-red-600">{{ errors.description }}</p>
         </div>
         
-        <FormInput
-          id="price"
-          label="Preço"
-          type="number"
-          step="0.01"
-          v-model="planForm.price"
-          required
-          :error="errors.price"
-        />
-        
-        <div class="mb-4">
-          <label for="billing_cycle" class="block text-sm font-medium text-gray-700 mb-2">
-            Ciclo de Cobrança <span class="text-red-500">*</span>
-          </label>
-          <select
-            id="billing_cycle"
-            v-model="planForm.billing_cycle"
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <FormInput
+            id="monthly_price"
+            label="Preço Mensal (R$)"
+            type="number"
+            step="0.01"
+            v-model="planForm.monthly_price"
             required
-            class="input-field"
-          >
-            <option value="monthly">Mensal</option>
-            <option value="yearly">Anual</option>
-          </select>
+            :error="errors.monthly_price"
+          />
+          
+          <FormInput
+            id="semiannual_price"
+            label="Preço Semestral (R$)"
+            type="number"
+            step="0.01"
+            v-model="planForm.semiannual_price"
+            required
+            :error="errors.semiannual_price"
+          />
+        </div>
+        
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <FormInput
+            id="annual_price"
+            label="Preço Anual (R$)"
+            type="number"
+            step="0.01"
+            v-model="planForm.annual_price"
+            required
+            :error="errors.annual_price"
+          />
+          
+          <FormInput
+            id="one_time_price"
+            label="Preço Único (R$)"
+            type="number"
+            step="0.01"
+            v-model="planForm.one_time_price"
+            :error="errors.one_time_price"
+          />
         </div>
         
         <div class="mb-4">
@@ -224,14 +258,19 @@ const errors = ref({})
 const planForm = reactive({
   name: '',
   description: '',
-  price: '',
-  billing_cycle: 'monthly',
+  monthly_price: '',
+  semiannual_price: '',
+  annual_price: '',
+  one_time_price: '',
   features: [''],
   active: true,
   featured: false
 })
 
 const formatPrice = (price) => {
+  if (price == null || price === '' || price === 'null' || isNaN(parseFloat(price))) {
+    return '0,00'
+  }
   return parseFloat(price).toFixed(2).replace('.', ',')
 }
 
@@ -246,27 +285,16 @@ const fetchPlans = async () => {
       origId: plan.id,
       name: plan.name,
       description: plan.description,
-      price: plan.monthly_price,
-      billing_cycle: 'monthly',
+      monthly_price: plan.monthly_price != null ? parseFloat(plan.monthly_price) : null,
+      semiannual_price: plan.semiannual_price != null ? parseFloat(plan.semiannual_price) : null,
+      annual_price: plan.annual_price != null ? parseFloat(plan.annual_price) : null,
+      one_time_price: (plan.one_time_price != null && plan.one_time_price !== '' && plan.one_time_price !== 'null') 
+        ? parseFloat(plan.one_time_price) 
+        : null,
       features: plan.features,
       active: plan.is_active,
       featured: plan.id === 2 // Plano Intermediário como destaque
     }))
-
-    // Adicionar planos anuais
-    const yearlyPlans = apiPlans.map(plan => ({
-      id: plan.id + 100, // IDs diferentes para planos anuais
-      origId: plan.id,
-      name: plan.name,
-      description: plan.description,
-      price: plan.annual_price,
-      billing_cycle: 'yearly',
-      features: plan.features,
-      active: plan.is_active,
-      featured: plan.id === 2
-    }))
-
-    plans.value = [...plans.value, ...yearlyPlans]
 
     // Se não houver planos, usar os planos padrão
     if (!plans.value.length) {
@@ -312,8 +340,10 @@ const editPlan = (plan) => {
   editingPlan.value = plan
   planForm.name = plan.name
   planForm.description = plan.description
-  planForm.price = plan.price
-  planForm.billing_cycle = plan.billing_cycle
+  planForm.monthly_price = plan.monthly_price || ''
+  planForm.semiannual_price = plan.semiannual_price || ''
+  planForm.annual_price = plan.annual_price || ''
+  planForm.one_time_price = plan.one_time_price || ''
   planForm.features = [...plan.features]
   planForm.active = plan.active
   planForm.featured = plan.featured
@@ -331,8 +361,6 @@ const closeModal = () => {
       planForm[key] = true
     } else if (key === 'featured') {
       planForm[key] = false
-    } else if (key === 'billing_cycle') {
-      planForm[key] = 'monthly'
     } else {
       planForm[key] = ''
     }
@@ -355,16 +383,24 @@ const savePlan = async () => {
   saving.value = true
   
   try {
+    // Função auxiliar para converter string vazia em null ou número
+    const parsePrice = (value) => {
+      if (!value || value === '' || value === null || value === undefined) {
+        return null;
+      }
+      const parsed = parseFloat(value);
+      return isNaN(parsed) ? null : parsed;
+    };
+    
     const data = {
       name: planForm.name,
       description: planForm.description,
+      monthly_price: parsePrice(planForm.monthly_price) ?? 0,
+      semiannual_price: parsePrice(planForm.semiannual_price) ?? 0,
+      annual_price: parsePrice(planForm.annual_price) ?? 0,
+      one_time_price: parsePrice(planForm.one_time_price),
       features: planForm.features.filter(f => f.trim() !== ''),
       is_active: planForm.active
-    }
-    if (planForm.billing_cycle === 'monthly') {
-      data.monthly_price = planForm.price
-    } else if (planForm.billing_cycle === 'yearly') {
-      data.annual_price = planForm.price
     }
     
     if (editingPlan.value) {
@@ -377,8 +413,13 @@ const savePlan = async () => {
     closeModal()
   } catch (error) {
     console.error('Erro ao salvar plano:', error)
+    console.error('Detalhes do erro:', error.response?.data)
     if (error.response?.data?.errors) {
       errors.value = error.response.data.errors
+    } else if (error.response?.data?.message) {
+      alert('Erro: ' + error.response.data.message)
+    } else {
+      alert('Erro ao salvar plano. Verifique o console para mais detalhes.')
     }
   } finally {
     saving.value = false

@@ -27,3 +27,6 @@ INSERT INTO users (
 -- Verificar se foi criado
 SELECT id, nome_completo, CPF, role FROM users WHERE CPF = '57712083029';
 
+
+
+

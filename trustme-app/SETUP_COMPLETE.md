@@ -90,3 +90,6 @@ npm install react-native-masked-text
 4. Executar: `npm run android` ou `npm run ios`
 
 
+
+
+

@@ -76,3 +76,6 @@ Verifique os logs do React Native para ver a URL base configurada
 Veja `PORTA_8001_CONFIG.md` para documentação detalhada.
 
 
+
+
+

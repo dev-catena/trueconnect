@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp, CommonActions } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../types/navigation';
 import { CustomColors } from '../../../core/colors';
 import SafeIcon from '../../../components/SafeIcon';
 import ApiProvider from '../../../core/api/ApiProvider';
+import { useUser } from '../../../core/context/UserContext';
 
 type StorePurchaseMockupScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'StorePurchaseMockup'>;
 type StorePurchaseMockupScreenRouteProp = RouteProp<RootStackParamList, 'StorePurchaseMockup'>;
@@ -14,7 +15,8 @@ type StorePurchaseMockupScreenRouteProp = RouteProp<RootStackParamList, 'StorePu
 const StorePurchaseMockupScreen: React.FC = () => {
   const navigation = useNavigation<StorePurchaseMockupScreenNavigationProp>();
   const route = useRoute<StorePurchaseMockupScreenRouteProp>();
-  const { plan, billingCycle, price } = route.params;
+  const { plan, billingCycle, price, seal, requestId, isSeal, additionalPurchase } = route.params;
+  const { refreshUserData } = useUser();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'authenticate' | 'confirm' | 'processing' | 'success'>('authenticate');
 
@@ -43,32 +45,166 @@ const StorePurchaseMockupScreen: React.FC = () => {
       // MOCKUP: Em produção, aqui seria a confirmação real com o backend
       // após receber a confirmação da loja
       const api = new ApiProvider(true);
-      // Simular chamada de API para confirmar assinatura
-      // await api.post('/subscriptions/confirm-store-purchase', { ... });
       
-      Alert.alert(
-        'Assinatura Confirmada',
-        'Sua assinatura foi ativada com sucesso!',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              navigation.navigate('Main');
-            }
+      if (isSeal && requestId) {
+        try {
+          const response = await api.post('/selos/confirm-store-payment', {
+            seal_request_id: requestId,
+          });
+          if (response.success) {
+            await refreshUserData();
+            const successMessage = response.message || 'Seu pagamento foi processado com sucesso! O selo está sendo avaliado e aparecerá em Meus Selos.';
+            Alert.alert(
+              'Pagamento Confirmado',
+              successMessage,
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    // Resetar o stack para evitar voltar à tela de pagamento com spinner travado
+                    navigation.dispatch(
+                      CommonActions.reset({
+                        index: 1,
+                        routes: [
+                          { name: 'Main' },
+                          { name: 'MySeals' },
+                        ],
+                      })
+                    );
+                  }
+                }
+              ]
+            );
+          } else {
+            throw new Error(response.message || 'Erro ao confirmar pagamento');
           }
-        ]
-      );
+        } catch (error: any) {
+          console.error('Erro ao confirmar pagamento do selo:', error);
+          Alert.alert(
+            'Erro',
+            error.response?.data?.message || 'Erro ao confirmar pagamento do selo. Tente novamente.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  navigation.dispatch(
+                    CommonActions.reset({
+                      index: 0,
+                      routes: [{ name: 'Main' }],
+                    })
+                  );
+                },
+              }
+            ]
+          );
+        }
+      } else if (additionalPurchase) {
+        // Confirmar compra adicional no backend
+        try {
+          const response = await api.post('/additional-purchases/confirm-store-purchase', {
+            purchase_id: additionalPurchase.purchaseId,
+            payment_method: 'store',
+            payment_id: `mock_${Date.now()}`,
+          });
+          
+          if (response.success) {
+            // Atualizar dados do usuário para refletir a nova compra
+            try {
+              await refreshUserData();
+              console.log('Dados do usuário atualizados após compra adicional');
+            } catch (e) {
+              console.warn('Erro ao atualizar dados do usuário após compra adicional:', e);
+            }
+            
+            Alert.alert(
+              'Compra Confirmada',
+              `${additionalPurchase.quantity} ${additionalPurchase.type === 'contracts' ? 'contrato(s)' : 'conexão(ões)'} adicional(is) comprado(s) com sucesso!`,
+              [
+                {
+                  text: 'OK',
+                  onPress: async () => {
+                    // Pequeno delay para garantir que o backend processou a compra
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // Navegar para MyPlans para que o usuário veja os dados atualizados
+                    navigation.navigate('MyPlans');
+                  }
+                }
+              ]
+            );
+          } else {
+            throw new Error('Erro ao confirmar compra adicional');
+          }
+        } catch (error: any) {
+          console.error('Erro ao confirmar compra adicional:', error);
+          Alert.alert(
+            'Erro',
+            error.response?.data?.message || 'Erro ao confirmar compra adicional. Tente novamente.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  navigation.navigate('Main');
+                }
+              }
+            ]
+          );
+        }
+      } else {
+        // Confirmar assinatura no backend
+        try {
+          const response = await api.post('/subscriptions/confirm-store-purchase', {
+            plan_id: plan.id,
+            billing_cycle: billingCycle,
+            payment_method: Platform.OS === 'ios' ? 'app_store' : 'google_play',
+            payment_id: `mock_${Date.now()}`,
+          });
+          
+          if (response.success) {
+            Alert.alert(
+              'Assinatura Confirmada',
+              'Sua assinatura foi ativada com sucesso!',
+              [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    navigation.navigate('Main');
+                  }
+                }
+              ]
+            );
+          } else {
+            throw new Error('Erro ao confirmar assinatura');
+          }
+        } catch (error: any) {
+          console.error('Erro ao confirmar assinatura:', error);
+          Alert.alert(
+            'Erro',
+            error.response?.data?.message || 'Erro ao confirmar assinatura. Tente novamente.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  navigation.navigate('Main');
+                }
+              }
+            ]
+          );
+        }
+      }
     } catch (error) {
-      console.error('Erro ao confirmar assinatura:', error);
-      Alert.alert('Erro', 'Erro ao confirmar assinatura. Entre em contato com o suporte.');
+      console.error('Erro ao confirmar:', error);
+      Alert.alert('Erro', 'Erro ao confirmar. Entre em contato com o suporte.');
     }
   };
 
-  const formatPrice = (price: number) => {
-    return `R$ ${price.toFixed(2).replace('.', ',')}`;
+  const formatPrice = (price: number | null | undefined): string => {
+    // Garantir que price é um número válido
+    const numPrice = price != null && !isNaN(Number(price)) ? Number(price) : 0;
+    return `R$ ${numPrice.toFixed(2).replace('.', ',')}`;
   };
 
   const getBillingLabel = () => {
+    if (isSeal) return ''; // Selos não têm ciclo de cobrança
     switch (billingCycle) {
       case 'monthly':
         return 'mensal';
@@ -79,6 +215,16 @@ const StorePurchaseMockupScreen: React.FC = () => {
       default:
         return 'mensal';
     }
+  };
+
+  const getPurchaseTitle = () => {
+    if (additionalPurchase) {
+      return `${additionalPurchase.quantity} ${additionalPurchase.type === 'contracts' ? 'Contrato(s)' : 'Conexão(ões)'} Adicional(is)`;
+    }
+    if (isSeal && seal) {
+      return seal.nome || seal.descricao || seal.codigo || 'Selo';
+    }
+    return plan?.name || 'Plano';
   };
 
   const renderContent = () => {
@@ -111,21 +257,62 @@ const StorePurchaseMockupScreen: React.FC = () => {
             <View style={styles.purchaseCard}>
               <Text style={styles.purchaseTitle}>Confirmar Compra</Text>
               <View style={styles.purchaseDetails}>
-                <Text style={styles.purchaseItem}>{plan.name}</Text>
+                <Text style={styles.purchaseItem}>{getPurchaseTitle()}</Text>
+                {isSeal && seal?.codigo && (
+                  <Text style={styles.purchaseSubtitle}>Código: {seal.codigo}</Text>
+                )}
+                {additionalPurchase && (
+                  <Text style={styles.purchaseSubtitle}>
+                    {additionalPurchase.type === 'contracts' ? 'Contratos' : 'Conexões'} adicionais para seu plano
+                  </Text>
+                )}
                 <Text style={styles.purchasePrice}>{formatPrice(price)}</Text>
-                <Text style={styles.purchasePeriod}>por {getBillingLabel()}</Text>
+                {!isSeal && !additionalPurchase && getBillingLabel() && (
+                  <Text style={styles.purchasePeriod}>por {getBillingLabel()}</Text>
+                )}
+                {additionalPurchase && (
+                  <Text style={styles.purchasePeriod}>pagamento único</Text>
+                )}
               </View>
 
               <View style={styles.purchaseInfo}>
-                <Text style={styles.purchaseInfoText}>
-                  • A assinatura será renovada automaticamente
-                </Text>
-                <Text style={styles.purchaseInfoText}>
-                  • Você pode cancelar a qualquer momento
-                </Text>
-                <Text style={styles.purchaseInfoText}>
-                  • O pagamento será cobrado na sua conta da loja
-                </Text>
+                {additionalPurchase ? (
+                  <>
+                    <Text style={styles.purchaseInfoText}>
+                      • Os recursos serão adicionados imediatamente após o pagamento
+                    </Text>
+                    <Text style={styles.purchaseInfoText}>
+                      • Os recursos adicionais são permanentes enquanto seu plano estiver ativo
+                    </Text>
+                    <Text style={styles.purchaseInfoText}>
+                      • O pagamento será cobrado na sua conta da loja
+                    </Text>
+                  </>
+                ) : isSeal ? (
+                  <>
+                    <Text style={styles.purchaseInfoText}>
+                      • O pagamento será processado imediatamente
+                    </Text>
+                    <Text style={styles.purchaseInfoText}>
+                      • O selo será analisado após confirmação do pagamento
+                    </Text>
+                    <Text style={styles.purchaseInfoText}>
+                      • O pagamento será cobrado na sua conta da loja
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.purchaseInfoText}>
+                      • A assinatura será renovada automaticamente
+                    </Text>
+                    <Text style={styles.purchaseInfoText}>
+                      • Você pode cancelar a qualquer momento
+                    </Text>
+                    <Text style={styles.purchaseInfoText}>
+                      • O pagamento será cobrado na sua conta da loja
+                    </Text>
+                  </>
+                )}
               </View>
 
               <TouchableOpacity
@@ -166,7 +353,9 @@ const StorePurchaseMockupScreen: React.FC = () => {
             </View>
             <Text style={styles.successTitle}>Compra Confirmada!</Text>
             <Text style={styles.successDescription}>
-              Sua assinatura foi ativada com sucesso.
+              {isSeal 
+                ? 'Seu pagamento foi processado com sucesso! O selo está aguardando análise.'
+                : 'Sua assinatura foi ativada com sucesso.'}
             </Text>
           </View>
         );
@@ -295,7 +484,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: CustomColors.black,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  purchaseSubtitle: {
+    fontSize: 14,
+    color: CustomColors.activeGreyed,
     marginBottom: 8,
+    textAlign: 'center',
   },
   purchasePrice: {
     fontSize: 32,

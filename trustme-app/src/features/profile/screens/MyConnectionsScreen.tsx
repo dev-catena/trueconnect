@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -9,6 +9,14 @@ import { CustomColors } from '../../../core/colors';
 import SafeIcon from '../../../components/SafeIcon';
 import ApiProvider from '../../../core/api/ApiProvider';
 import { Connection } from '../../../types';
+
+interface Subscription {
+  id: number;
+  plan_id: number;
+  status: string;
+  start_date: string;
+  end_date: string | null;
+}
 
 type MyConnectionsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'MyConnections'>;
 
@@ -25,10 +33,46 @@ const MyConnectionsScreen: React.FC = () => {
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [hasActivePlan, setHasActivePlan] = useState<boolean | null>(null);
 
   useEffect(() => {
-    loadConnections();
+    checkActivePlan();
   }, []);
+
+  useEffect(() => {
+    if (hasActivePlan === true) {
+      loadConnections();
+    } else if (hasActivePlan === false) {
+      setLoading(false);
+    }
+  }, [hasActivePlan]);
+
+  const checkActivePlan = async () => {
+    try {
+      const api = new ApiProvider(true);
+      const response = await api.get<{ success: boolean; data: Subscription[] }>('user/subscriptions');
+
+      if (response.success && Array.isArray(response.data)) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const active = response.data.find((sub: Subscription) => {
+          if (sub.status !== 'active') return false;
+          if (!sub.end_date) return true; // Se não tem data de fim, considera ativa
+          const endDate = new Date(sub.end_date);
+          endDate.setHours(0, 0, 0, 0);
+          return endDate >= today;
+        });
+
+        setHasActivePlan(!!active);
+      } else {
+        setHasActivePlan(false);
+      }
+    } catch (error: any) {
+      console.error('Erro ao verificar plano ativo:', error);
+      setHasActivePlan(false);
+    }
+  };
 
   const loadConnections = async () => {
     if (!user?.id) {
@@ -91,15 +135,30 @@ const MyConnectionsScreen: React.FC = () => {
     return connection.solicitante;
   };
 
+  const handleProfilePress = () => {
+    navigation.navigate('Profile');
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Minhas Conexões</Text>
-          <View style={styles.placeholder} />
+          <View style={styles.headerContent}>
+            <View style={styles.headerLeft}>
+              <View style={styles.logoContainer}>
+                <Image
+                  source={require('../../../../assets/images/trustme-logo.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  tintColor={CustomColors.white}
+                />
+              </View>
+              <Text style={styles.headerTitle}>Minhas Conexões</Text>
+            </View>
+            <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+              <SafeIcon name="profile" size={28} color={CustomColors.white} />
+            </TouchableOpacity>
+          </View>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={CustomColors.activeColor} />
@@ -112,15 +171,41 @@ const MyConnectionsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <SafeIcon name="arrow-back" size={24} color={CustomColors.white} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Minhas Conexões</Text>
-        <View style={styles.placeholder} />
+        <View style={styles.headerContent}>
+          <View style={styles.headerLeft}>
+            <View style={styles.logoContainer}>
+              <Image
+                source={require('../../../../assets/images/trustme-logo.png')}
+                style={styles.logo}
+                resizeMode="contain"
+                tintColor={CustomColors.white}
+              />
+            </View>
+            <Text style={styles.headerTitle}>Minhas Conexões</Text>
+          </View>
+          <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+            <SafeIcon name="profile" size={28} color={CustomColors.white} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {connections.length === 0 ? (
+        {hasActivePlan === false ? (
+          <View style={styles.noPlanContainer}>
+            <SafeIcon name="link-off" size={64} color={CustomColors.activeGreyed} />
+            <Text style={styles.noPlanTitle}>Funcionalidade Indisponível</Text>
+            <Text style={styles.noPlanText}>
+              Esta funcionalidade não está disponível no momento. Para acessar suas conexões, você precisa contratar um plano.
+            </Text>
+            <TouchableOpacity
+              style={styles.planButton}
+              onPress={() => navigation.navigate('Plans')}
+            >
+              <Text style={styles.planButtonText}>Contratar Plano</Text>
+              <SafeIcon name="arrow-forward" size={20} color={CustomColors.white} />
+            </TouchableOpacity>
+          </View>
+        ) : connections.length === 0 ? (
           <View style={styles.emptyContainer}>
             <SafeIcon name="link-off" size={64} color={CustomColors.activeGreyed} />
             <Text style={styles.emptyTitle}>Nenhuma conexão encontrada</Text>
@@ -180,20 +265,34 @@ const styles = StyleSheet.create({
     backgroundColor: CustomColors.activeColor,
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 12,
   },
-  backButton: {
-    padding: 4,
+  logoContainer: {
+    height: 40,
+    width: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  logo: {
+    height: 40,
+    width: 40,
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: CustomColors.white,
   },
-  placeholder: {
-    width: 32,
+  profileButton: {
+    padding: 4,
   },
   content: {
     flex: 1,
@@ -227,6 +326,43 @@ const styles = StyleSheet.create({
     color: CustomColors.activeGreyed,
     textAlign: 'center',
     paddingHorizontal: 32,
+  },
+  noPlanContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 64,
+    paddingHorizontal: 32,
+  },
+  noPlanTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: CustomColors.black,
+    marginTop: 16,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  noPlanText: {
+    fontSize: 16,
+    color: CustomColors.activeGreyed,
+    textAlign: 'center',
+    marginBottom: 32,
+    lineHeight: 24,
+  },
+  planButton: {
+    backgroundColor: CustomColors.activeColor,
+    borderRadius: 8,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 200,
+  },
+  planButtonText: {
+    color: CustomColors.white,
+    fontSize: 16,
+    fontWeight: '600',
+    marginRight: 8,
   },
   connectionCard: {
     backgroundColor: CustomColors.white,

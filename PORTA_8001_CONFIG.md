@@ -128,3 +128,6 @@ const BASE_URL = `${PROTOCOL}://${HOST}/api`;
 - [x] CORS configurado corretamente
 
 
+
+
+

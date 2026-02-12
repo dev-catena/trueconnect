@@ -107,6 +107,8 @@ class PaymentController extends Controller
                 'monthly' => $startDate->copy()->addMonth(),
                 'semiannual' => $startDate->copy()->addMonths(6),
                 'annual' => $startDate->copy()->addYear(),
+                'one_time' => null, // Pagamento único não tem data de fim
+                default => $startDate->copy()->addMonth(),
             };
 
             $subscription = Subscription::create([
@@ -204,6 +206,8 @@ class PaymentController extends Controller
                 'monthly' => $startDate->copy()->addMonth(),
                 'semiannual' => $startDate->copy()->addMonths(6),
                 'annual' => $startDate->copy()->addYear(),
+                'one_time' => null, // Pagamento único não tem data de fim
+                default => $startDate->copy()->addMonth(),
             };
 
             $subscription = Subscription::create([
@@ -258,6 +262,8 @@ class PaymentController extends Controller
                 'monthly' => $startDate->copy()->addMonth(),
                 'semiannual' => $startDate->copy()->addMonths(6),
                 'annual' => $startDate->copy()->addYear(),
+                'one_time' => null, // Pagamento único não tem data de fim
+                default => $startDate->copy()->addMonth(),
             };
 
             $subscription = Subscription::create([

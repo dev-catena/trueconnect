@@ -56,6 +56,9 @@
                 Descrição
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Cláusulas
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Ações
               </th>
             </tr>
@@ -68,8 +71,19 @@
               <td class="px-6 py-4">
                 <div class="text-sm text-gray-900">{{ type.descricao }}</div>
               </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm text-gray-500">
+                  {{ getClausulasCount(type.id) }} cláusula(s)
+                </div>
+              </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                 <div class="flex space-x-2">
+                  <button
+                    @click="manageClausulas(type)"
+                    class="text-blue-600 hover:text-blue-900"
+                  >
+                    Cláusulas
+                  </button>
                   <button
                     @click="editContractType(type)"
                     class="text-trust-600 hover:text-trust-900"
@@ -129,6 +143,175 @@
         </div>
       </form>
     </Modal>
+
+    <!-- Manage Clauses Modal -->
+    <Modal :show="showClausulasModal" @close="closeClausulasModal" :title="`Cláusulas - ${selectedContractType?.codigo || ''}`">
+      <div class="space-y-4">
+        <!-- Lista de cláusulas do tipo -->
+        <div>
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Cláusulas Associadas</h3>
+          <div v-if="loadingClausulas" class="p-4 text-center">
+            <Loader text="Carregando cláusulas..." />
+          </div>
+          <div v-else-if="typeClausulas.length === 0" class="p-4 text-center text-gray-500">
+            Nenhuma cláusula associada
+          </div>
+          <div v-else class="space-y-2 max-h-60 overflow-y-auto">
+            <div
+              v-for="clausula in typeClausulas"
+              :key="clausula.id"
+              class="flex items-center justify-between p-3 bg-gray-50 rounded border"
+            >
+              <div class="flex-1">
+                <div class="text-sm font-medium text-gray-900">{{ clausula.codigo }} - {{ clausula.nome }}</div>
+                <div class="text-xs text-gray-500 mt-1">{{ clausula.descricao }}</div>
+              </div>
+              <button
+                @click="removeClausulaFromType(clausula.id)"
+                class="text-red-600 hover:text-red-900 text-sm ml-4"
+              >
+                Remover
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Adicionar cláusula -->
+        <div class="border-t pt-4">
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Adicionar Cláusula</h3>
+          <div class="flex gap-2">
+            <select
+              v-model="selectedClausulaToAdd"
+              class="flex-1 input-field"
+            >
+              <option value="">Selecione uma cláusula...</option>
+              <option
+                v-for="clausula in availableClausulas"
+                :key="clausula.id"
+                :value="clausula.id"
+              >
+                {{ clausula.codigo }} - {{ clausula.nome }}
+              </option>
+            </select>
+            <button
+              @click="addClausulaToType"
+              class="btn-primary"
+              :disabled="!selectedClausulaToAdd || addingClausula"
+            >
+              {{ addingClausula ? 'Adicionando...' : 'Adicionar' }}
+            </button>
+          </div>
+          <div class="mt-2">
+            <button
+              @click="showCreateClausulaModal = true"
+              class="text-sm text-trust-600 hover:text-trust-900"
+            >
+              + Criar nova cláusula
+            </button>
+          </div>
+        </div>
+
+        <!-- Gerenciar Cláusulas Disponíveis -->
+        <div class="border-t pt-4">
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Gerenciar Cláusulas Disponíveis</h3>
+          <div v-if="loadingClausulas" class="p-4 text-center">
+            <Loader text="Carregando cláusulas..." />
+          </div>
+          <div v-else-if="allClausulas.length === 0" class="p-4 text-center text-gray-500">
+            Nenhuma cláusula cadastrada
+          </div>
+          <div v-else class="space-y-2 max-h-60 overflow-y-auto">
+            <div
+              v-for="clausula in allClausulas"
+              :key="clausula.id"
+              class="flex items-center justify-between p-3 bg-gray-50 rounded border"
+            >
+              <div class="flex-1">
+                <div class="text-sm font-medium text-gray-900">{{ clausula.codigo }} - {{ clausula.nome }}</div>
+                <div class="text-xs text-gray-500 mt-1 line-clamp-2">{{ clausula.descricao }}</div>
+                <div v-if="clausula.sexual" class="text-xs text-orange-600 mt-1">Cláusula sexual</div>
+              </div>
+              <div class="flex gap-2 ml-4">
+                <button
+                  @click="editClausula(clausula)"
+                  class="text-trust-600 hover:text-trust-900 text-sm"
+                  title="Editar cláusula"
+                >
+                  Editar
+                </button>
+                <button
+                  @click="deleteClausula(clausula)"
+                  class="text-red-600 hover:text-red-900 text-sm"
+                  title="Excluir cláusula"
+                >
+                  Excluir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Modal>
+
+    <!-- Create/Edit Clause Modal -->
+    <Modal :show="showCreateClausulaModal || showEditClausulaModal" @close="closeClausulaModal" :title="clausulaModalTitle">
+      <form @submit.prevent="saveClausula" class="space-y-4">
+        <div>
+          <FormInput
+            v-model="clausulaForm.codigo"
+            label="Código"
+            type="text"
+            required
+            :error="clausulaErrors.codigo"
+          />
+        </div>
+        <div>
+          <FormInput
+            v-model="clausulaForm.nome"
+            label="Nome"
+            type="text"
+            required
+            :error="clausulaErrors.nome"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+          <textarea
+            v-model="clausulaForm.descricao"
+            rows="3"
+            class="input-field"
+            required
+          ></textarea>
+          <p v-if="clausulaErrors.descricao" class="text-red-600 text-xs mt-1">{{ clausulaErrors.descricao }}</p>
+        </div>
+        <div>
+          <label class="flex items-center">
+            <input
+              v-model="clausulaForm.sexual"
+              type="checkbox"
+              class="rounded border-gray-300 text-trust-600 focus:ring-trust-500"
+            />
+            <span class="ml-2 text-sm text-gray-700">Cláusula sexual</span>
+          </label>
+        </div>
+        <div class="flex justify-end space-x-3">
+          <button
+            type="button"
+            @click="closeClausulaModal"
+            class="btn-secondary"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            class="btn-primary"
+            :disabled="savingClausula"
+          >
+            {{ savingClausula ? 'Salvando...' : 'Salvar' }}
+          </button>
+        </div>
+      </form>
+    </Modal>
   </div>
 </template>
 
@@ -153,8 +336,36 @@ const contractTypeForm = reactive({
   descricao: ''
 })
 
+// Cláusulas
+const showClausulasModal = ref(false)
+const selectedContractType = ref(null)
+const typeClausulas = ref([])
+const availableClausulas = ref([])
+const allClausulas = ref([]) // Todas as cláusulas do sistema
+const loadingClausulas = ref(false)
+const addingClausula = ref(false)
+const selectedClausulaToAdd = ref('')
+
+// Modal de cláusula
+const showCreateClausulaModal = ref(false)
+const showEditClausulaModal = ref(false)
+const editingClausula = ref(null)
+const savingClausula = ref(false)
+const clausulaErrors = ref({})
+
+const clausulaForm = reactive({
+  codigo: '',
+  nome: '',
+  descricao: '',
+  sexual: false
+})
+
 const modalTitle = computed(() => {
   return showEditModal.value ? 'Editar Tipo de Contrato' : 'Novo Tipo de Contrato'
+})
+
+const clausulaModalTitle = computed(() => {
+  return showEditClausulaModal.value ? 'Editar Cláusula' : 'Nova Cláusula'
 })
 
 const filteredContractTypes = computed(() => {
@@ -171,7 +382,9 @@ const fetchContractTypes = async () => {
   loading.value = true
   try {
     const response = await api.get('/contrato-tipos')
-    contractTypes.value = response.data.data || response.data
+    // A resposta pode vir em result, data ou diretamente como array
+    const data = response.data?.result || response.data?.data || response.data
+    contractTypes.value = Array.isArray(data) ? data : []
   } catch (error) {
     console.error('Erro ao carregar tipos de contrato:', error)
     contractTypes.value = []
@@ -193,11 +406,17 @@ const deleteContractType = async (type) => {
   }
 
   try {
-    await api.delete(`/contrato-tipos/${type.id}`)
-    await fetchContractTypes()
+    const response = await api.delete(`/contrato-tipos/${type.id}`)
+    if (response.data?.success) {
+      alert('Tipo de contrato excluído com sucesso')
+      await fetchContractTypes()
+    } else {
+      throw new Error(response.data?.message || 'Erro ao excluir tipo de contrato')
+    }
   } catch (error) {
     console.error('Erro ao excluir tipo de contrato:', error)
-    alert('Erro ao excluir tipo de contrato')
+    const errorMessage = error.response?.data?.message || error.message || 'Erro ao excluir tipo de contrato'
+    alert(errorMessage)
   }
 }
 
@@ -233,6 +452,160 @@ const closeModal = () => {
   contractTypeForm.codigo = ''
   contractTypeForm.descricao = ''
   errors.value = {}
+}
+
+const getClausulasCount = (typeId) => {
+  const type = contractTypes.value.find(t => t.id === typeId)
+  return type?.clausulas_count || 0
+}
+
+const manageClausulas = async (type) => {
+  selectedContractType.value = type
+  showClausulasModal.value = true
+  await loadTypeClausulas(type.id)
+  await loadAvailableClausulas()
+}
+
+const loadTypeClausulas = async (typeId) => {
+  loadingClausulas.value = true
+  try {
+    const response = await api.get(`/contrato-tipos/${typeId}/clausulas`)
+    typeClausulas.value = response.data?.data || response.data?.result || []
+  } catch (error) {
+    console.error('Erro ao carregar cláusulas:', error)
+    typeClausulas.value = []
+  } finally {
+    loadingClausulas.value = false
+  }
+}
+
+const loadAvailableClausulas = async () => {
+  try {
+    const response = await api.get('/clausulas')
+    const data = response.data?.result || response.data?.data || []
+    allClausulas.value = data
+    // Filtrar apenas as que não estão associadas para o combo
+    const associatedIds = typeClausulas.value.map(c => c.id)
+    availableClausulas.value = data.filter(c => !associatedIds.includes(c.id))
+  } catch (error) {
+    console.error('Erro ao carregar cláusulas disponíveis:', error)
+    allClausulas.value = []
+    availableClausulas.value = []
+  }
+}
+
+const addClausulaToType = async () => {
+  if (!selectedClausulaToAdd.value || !selectedContractType.value) return
+
+  addingClausula.value = true
+  try {
+    await api.post(`/contrato-tipos/${selectedContractType.value.id}/clausulas`, {
+      clausula_id: selectedClausulaToAdd.value
+    })
+    selectedClausulaToAdd.value = ''
+    await loadTypeClausulas(selectedContractType.value.id)
+    await loadAvailableClausulas()
+    await fetchContractTypes() // Atualizar contagem
+  } catch (error) {
+    console.error('Erro ao adicionar cláusula:', error)
+    alert(error.response?.data?.message || 'Erro ao adicionar cláusula')
+  } finally {
+    addingClausula.value = false
+  }
+}
+
+const removeClausulaFromType = async (clausulaId) => {
+  if (!confirm('Tem certeza que deseja remover esta cláusula do tipo de contrato?')) {
+    return
+  }
+
+  try {
+    await api.delete(`/contrato-tipos/${selectedContractType.value.id}/clausulas/${clausulaId}`)
+    await loadTypeClausulas(selectedContractType.value.id)
+    await loadAvailableClausulas()
+    await fetchContractTypes() // Atualizar contagem
+  } catch (error) {
+    console.error('Erro ao remover cláusula:', error)
+    alert(error.response?.data?.message || 'Erro ao remover cláusula')
+  }
+}
+
+const closeClausulasModal = () => {
+  showClausulasModal.value = false
+  selectedContractType.value = null
+  typeClausulas.value = []
+  availableClausulas.value = []
+  allClausulas.value = []
+  selectedClausulaToAdd.value = ''
+}
+
+const saveClausula = async () => {
+  savingClausula.value = true
+  clausulaErrors.value = {}
+
+  try {
+    if (showEditClausulaModal.value) {
+      await api.put(`/clausulas/${editingClausula.value.id}`, clausulaForm)
+    } else {
+      await api.post('/clausulas', clausulaForm)
+    }
+
+    closeClausulaModal()
+    await loadAvailableClausulas()
+    // Se estiver gerenciando cláusulas de um tipo, recarregar também
+    if (selectedContractType.value) {
+      await loadTypeClausulas(selectedContractType.value.id)
+    }
+  } catch (error) {
+    console.error('Erro ao salvar cláusula:', error)
+    if (error.response?.data?.errors) {
+      clausulaErrors.value = error.response.data.errors
+    } else {
+      alert(error.response?.data?.message || 'Erro ao salvar cláusula')
+    }
+  } finally {
+    savingClausula.value = false
+  }
+}
+
+const editClausula = (clausula) => {
+  editingClausula.value = clausula
+  clausulaForm.codigo = clausula.codigo
+  clausulaForm.nome = clausula.nome
+  clausulaForm.descricao = clausula.descricao
+  clausulaForm.sexual = clausula.sexual || false
+  showEditClausulaModal.value = true
+}
+
+const deleteClausula = async (clausula) => {
+  if (!confirm(`Tem certeza que deseja excluir a cláusula "${clausula.codigo} - ${clausula.nome}"?\n\nEsta ação não pode ser desfeita.`)) {
+    return
+  }
+
+  try {
+    await api.delete(`/clausulas/${clausula.id}`)
+    alert('Cláusula excluída com sucesso')
+    await loadAvailableClausulas()
+    // Se a cláusula estava associada ao tipo, recarregar as cláusulas do tipo também
+    if (selectedContractType.value) {
+      await loadTypeClausulas(selectedContractType.value.id)
+    }
+  } catch (error) {
+    console.error('Erro ao excluir cláusula:', error)
+    const errorMessage = error.response?.data?.message || 'Erro ao excluir cláusula'
+    alert(errorMessage)
+  }
+}
+
+const closeClausulaModal = () => {
+  showCreateClausulaModal.value = false
+  showEditClausulaModal.value = false
+  editingClausula.value = null
+  clausulaForm.codigo = ''
+  clausulaForm.nome = ''
+  clausulaForm.descricao = ''
+  clausulaForm.sexual = false
+  clausulaErrors.value = {}
 }
 
 onMounted(() => {

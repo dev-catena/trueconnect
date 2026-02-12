@@ -18,6 +18,7 @@ interface Plan {
   monthly_price: number;
   semiannual_price: number;
   annual_price: number;
+  one_time_price: number | null;
   seals_limit: number | null;
   contracts_limit: number | null;
   features: string[];
@@ -29,17 +30,26 @@ const PlanDetailScreen: React.FC = () => {
   const route = useRoute<PlanDetailScreenRouteProp>();
   const { plan, billingCycle } = route.params;
 
-  const getPrice = () => {
+  const getPrice = (): number => {
+    let price: number | undefined | null;
     switch (billingCycle) {
       case 'monthly':
-        return plan.monthly_price;
+        price = plan.monthly_price;
+        break;
       case 'semiannual':
-        return plan.semiannual_price;
+        price = plan.semiannual_price;
+        break;
       case 'annual':
-        return plan.annual_price;
+        price = plan.annual_price;
+        break;
+      case 'one_time':
+        price = plan.one_time_price;
+        break;
       default:
-        return plan.monthly_price;
+        price = plan.monthly_price;
     }
+    // Garantir que sempre retorna um número válido
+    return price != null && !isNaN(Number(price)) ? Number(price) : 0;
   };
 
   const getBillingLabel = () => {
@@ -50,13 +60,17 @@ const PlanDetailScreen: React.FC = () => {
         return 'semestral';
       case 'annual':
         return 'anual';
+      case 'one_time':
+        return 'único';
       default:
         return 'mensal';
     }
   };
 
-  const formatPrice = (price: number) => {
-    return `R$ ${price.toFixed(2).replace('.', ',')}`;
+  const formatPrice = (price: number | null | undefined): string => {
+    // Garantir que price é um número válido
+    const numPrice = price != null && !isNaN(Number(price)) ? Number(price) : 0;
+    return `R$ ${numPrice.toFixed(2).replace('.', ',')}`;
   };
 
   const handleSubscribe = () => {
@@ -70,7 +84,12 @@ const PlanDetailScreen: React.FC = () => {
         <View style={styles.priceSection}>
           <Text style={styles.priceLabel}>Preço {getBillingLabel()}</Text>
           <Text style={styles.price}>{formatPrice(getPrice())}</Text>
-          <Text style={styles.pricePeriod}>por {getBillingLabel()}</Text>
+          {billingCycle !== 'one_time' && (
+            <Text style={styles.pricePeriod}>por {getBillingLabel()}</Text>
+          )}
+          {billingCycle === 'one_time' && (
+            <Text style={styles.pricePeriod}>pagamento único</Text>
+          )}
         </View>
 
         {/* Description */}

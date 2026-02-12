@@ -27,6 +27,10 @@ api.interceptors.request.use(
     
     if (token && !isPublicRoute) {
       config.headers.Authorization = `Bearer ${token}`
+      console.log('🔑 Token enviado para:', config.url)
+      console.log('📝 Token length:', token.length)
+    } else if (!token && !isPublicRoute) {
+      console.warn('⚠️ Token não encontrado para rota:', config.url)
     }
     
     return config

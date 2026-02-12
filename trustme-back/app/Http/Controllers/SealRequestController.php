@@ -49,6 +49,29 @@ class SealRequestController extends Controller
         ]);
     }
 
+    /**
+     * Serve o arquivo de um documento de solicitação de selo (para admin/servicedesk)
+     */
+    public function serveDocument($requestId, $documentId)
+    {
+        $sealRequest = SealRequest::with('documents')->findOrFail($requestId);
+        $document = $sealRequest->documents->firstWhere('id', (int) $documentId);
+        
+        if (!$document || !$document->file_path) {
+            abort(404, 'Documento não encontrado');
+        }
+
+        $path = storage_path('app/public/' . $document->file_path);
+        if (!file_exists($path)) {
+            abort(404, 'Arquivo não encontrado');
+        }
+
+        return response()->file($path, [
+            'Content-Type' => $document->mime_type ?? 'application/octet-stream',
+            'Content-Disposition' => 'inline; filename="' . basename($document->file_name ?? $document->file_path) . '"',
+        ]);
+    }
+
     public function show($id)
     {
         $request = SealRequest::with(['user', 'sealType', 'documents'])

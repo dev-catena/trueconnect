@@ -1,12 +1,11 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { HomeStackParamList, RootStackParamList } from '../../../types/navigation';
 import { useUser } from '../../../core/context/UserContext';
 import { CustomColors } from '../../../core/colors';
-import { ContractStatus } from '../../../types';
 import SafeIcon from '../../../components/SafeIcon';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
@@ -30,8 +29,8 @@ const HomeScreen: React.FC = () => {
     const safeContracts = Array.isArray(contracts) ? contracts : [];
     const safeConnections = Array.isArray(connections) ? connections : [];
     
-    const activeContracts = safeContracts.filter((c) => c.status === 'Ativo' || c.status === ContractStatus.Ativo).length;
-    const pendingContracts = safeContracts.filter((c) => c.status === 'Pendente' || c.status === ContractStatus.Pendente).length;
+    const activeContracts = safeContracts.filter((c) => String(c.status) === 'Ativo').length;
+    const pendingContracts = safeContracts.filter((c) => String(c.status) === 'Pendente').length;
     const activeConnections = safeConnections.filter((c) => c.aceito === true).length;
     const pendingConnections = safeConnections.filter((c) => c.aceito === false || !c.aceito).length;
     const pendingSeals = Array.isArray(user?.sealsObtained) ? user.sealsObtained.filter((s: any) => s.status === 'pendente').length : 0;
@@ -50,7 +49,7 @@ const HomeScreen: React.FC = () => {
   };
 
   const handlePlansPress = () => {
-    rootNavigation.navigate('Plans');
+    rootNavigation.navigate('MyPlans');
   };
 
   const handleConnectionsPress = () => {
@@ -58,11 +57,21 @@ const HomeScreen: React.FC = () => {
   };
 
   const handleSealsPress = () => {
-    navigation.navigate('Seals');
+    rootNavigation.navigate('MySeals');
   };
 
-  const handlePlansPress = () => {
-    rootNavigation.navigate('Plans');
+  const handleContractsPress = () => {
+    navigation.navigate('Contracts', {});
+  };
+
+  // Navegação para a aba Contratos (evita conflito com screen do mesmo nome)
+  const navigateToContractsTab = (initialFilter?: string) => {
+    const tabNav = navigation.getParent();
+    if (tabNav) {
+      (tabNav as any).navigate('Contracts', { initialFilter });
+    } else {
+      navigation.navigate('Contracts', { initialFilter });
+    }
   };
 
   // Handlers para Admin
@@ -100,7 +109,12 @@ const HomeScreen: React.FC = () => {
       </View>
 
       {/* Content */}
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="always"
+        nestedScrollEnabled
+      >
         {/* Menu para Usuário do App */}
         {isAppUser && (
           <>
@@ -110,34 +124,54 @@ const HomeScreen: React.FC = () => {
               
               <View style={styles.summaryGrid}>
                 {/* Contratos Ativos */}
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [styles.summaryCard, pressed && styles.summaryCardPressed]}
+                  onPress={() => navigateToContractsTab('Ativo')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <Text style={styles.summaryNumber}>{stats?.activeContracts || 0}</Text>
                   <Text style={styles.summaryLabel}>Contratos ativos</Text>
-                </View>
+                </Pressable>
 
                 {/* Contratos Pendentes */}
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [styles.summaryCard, pressed && styles.summaryCardPressed]}
+                  onPress={() => navigateToContractsTab('Pendente')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <Text style={styles.summaryNumber}>{stats?.pendingContracts || 0}</Text>
                   <Text style={styles.summaryLabel}>Contratos pendentes</Text>
-                </View>
+                </Pressable>
 
                 {/* Selos Pendentes */}
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [styles.summaryCard, pressed && styles.summaryCardPressed]}
+                  onPress={handleSealsPress}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <Text style={styles.summaryNumber}>{stats?.pendingSeals || 0}</Text>
                   <Text style={styles.summaryLabel}>Selos pendentes</Text>
-                </View>
+                </Pressable>
 
                 {/* Conexões Ativas */}
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [styles.summaryCard, pressed && styles.summaryCardPressed]}
+                  onPress={() => navigation.navigate('ConnectionPanel', { initialFilter: 'Aceitas' })}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <Text style={styles.summaryNumber}>{stats?.activeConnections || 0}</Text>
                   <Text style={styles.summaryLabel}>Conexões ativas</Text>
-                </View>
+                </Pressable>
 
                 {/* Conexões Pendentes */}
-                <View style={styles.summaryCard}>
+                <Pressable
+                  style={({ pressed }) => [styles.summaryCard, pressed && styles.summaryCardPressed]}
+                  onPress={() => navigation.navigate('ConnectionPanel', { initialFilter: 'Pendentes' })}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
                   <Text style={styles.summaryNumber}>{stats?.pendingConnections || 0}</Text>
                   <Text style={styles.summaryLabel}>Conexões pendentes</Text>
-                </View>
+                </Pressable>
               </View>
             </View>
 
@@ -164,7 +198,7 @@ const HomeScreen: React.FC = () => {
               {/* Card de Contratos */}
               <TouchableOpacity 
                 style={styles.actionCard} 
-                onPress={() => navigation.getParent()?.navigate('Contracts' as never)}
+                onPress={handleContractsPress}
               >
                 <View style={styles.actionCardContent}>
                   <View style={styles.actionIconContainer}>
@@ -361,16 +395,21 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     width: '48%',
+    minHeight: 90,
     backgroundColor: CustomColors.white,
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  summaryCardPressed: {
+    opacity: 0.7,
   },
   summaryNumber: {
     fontSize: 32,

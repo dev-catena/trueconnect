@@ -15,6 +15,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\LoginHistoryController;
 use App\Http\Controllers\ContratoTipoController;
+use App\Http\Controllers\ClausulaController;
 use App\Http\Controllers\SeloController;
 use App\Http\Controllers\ServiceDeskController;
 use App\Http\Controllers\ServiceDeskUserController;
@@ -22,6 +23,7 @@ use App\Http\Controllers\SealRequestController;
 use App\Http\Controllers\ServiceDeskSealController;
 use App\Http\Controllers\ContratoClausulaController;
 use App\Http\Controllers\ContratoController;
+use App\Http\Controllers\AdditionalPurchaseController;
 use App\Http\Controllers\ContratoUsuarioPerguntaController;
 use App\Http\Controllers\Funcionalidade\FuncionalidadeController;
 use App\Http\Controllers\Funcionalidade\GrupoController;
@@ -31,6 +33,8 @@ use App\Http\Controllers\PerguntaController;
 use App\Http\Controllers\UsuarioChaveController;
 use App\Http\Controllers\UsuarioConexaoController;
 use App\Http\Controllers\UsuarioVerificacaoController;
+use App\Http\Controllers\ConnectionStatusController;
+use App\Http\Controllers\ParametroSistemaController;
 
 /*
 |--------------------------------------------------------------------------
@@ -92,6 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/seal-types', [ServiceDeskSealController::class, 'sealTypes']);
         Route::get('/requests', [SealRequestController::class, 'index']);
         Route::get('/requests/{id}', [SealRequestController::class, 'show']);
+        Route::get('/requests/{requestId}/documents/{documentId}/file', [SealRequestController::class, 'serveDocument']);
         Route::post('/requests/{id}/approve', [SealRequestController::class, 'approve']);
         Route::post('/requests/{id}/reject', [SealRequestController::class, 'reject']);
         Route::post('/requests/{id}/revoke', [SealRequestController::class, 'revoke']);
@@ -108,6 +113,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Route::get('/selos/listar', [SeloController::class, 'index']); // Movida para rotas públicas (linha 51)
     Route::post('/selos/solicitar', [SeloController::class, 'solicitar']);
     Route::post('/selos/pagamento', [SeloController::class, 'pagamento']);
+    Route::post('/selos/confirm-store-payment', [SeloController::class, 'confirmStorePayment']);
 
     // Perfil do usuário
     Route::get('/user/profile', [UserController::class, 'profile']);
@@ -118,10 +124,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/user/subscriptions/{id}/cancel', [SubscriptionController::class, 'cancelUserSubscription']);
     Route::post('/user/subscriptions/compare-plan-change', [SubscriptionController::class, 'comparePlanChange']);
     Route::put('/user/subscriptions/change-plan', [SubscriptionController::class, 'changePlan']);
+    Route::post('/subscriptions/confirm-store-purchase', [SubscriptionController::class, 'confirmStorePurchase']);
 
     // Pagamentos
     Route::post('/payment/create-preference', [PaymentController::class, 'createPreference']);
     Route::post('/payment/process', [PaymentController::class, 'processPayment']);
+
+    // Rotas do App - Contrato Tipos (ANTES do grupo admin para evitar conflito)
+    // Rota específica /listar deve vir antes do apiResource para ter prioridade
+    Route::get('/contrato-tipos/listar', [ContratoTipoController::class, 'index']);
+    Route::get('/contrato-tipos/{id}/clausulas-perguntas', [ContratoTipoController::class, 'clausulasEPerguntasPorTipo']);
 
     // Rotas administrativas
     Route::middleware('check.admin')->group(function () {
@@ -155,12 +167,30 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/contacts/{id}/respond', [ContactController::class, 'respond']);
         Route::put('/contacts/{id}/status', [ContactController::class, 'updateStatus']);
 
+        // Gestão de preços de compras adicionais
+        Route::get('/admin/additional-purchase-prices', [\App\Http\Controllers\Admin\AdditionalPurchasePriceController::class, 'index']);
+        Route::put('/admin/additional-purchase-prices/{id}', [\App\Http\Controllers\Admin\AdditionalPurchasePriceController::class, 'update']);
+
+        // Parâmetros do sistema
+        Route::get('/admin/parametros-sistema', [ParametroSistemaController::class, 'index']);
+        Route::put('/admin/parametros-sistema', [ParametroSistemaController::class, 'update']);
+
         // Configurações do site
         Route::apiResource('site-settings', SiteSettingController::class);
         Route::post('/site-settings/bulk-update', [SiteSettingController::class, 'bulkUpdate']);
 
-        // Gestão de Tipos de Contrato
-        Route::apiResource('contrato-tipos', ContratoTipoController::class);
+        // Gestão de Tipos de Contrato (admin only)
+        // Rota específica para listar (admin precisa de index)
+        Route::get('/contrato-tipos', [ContratoTipoController::class, 'index']);
+        // Rotas para gerenciar cláusulas de tipos de contrato
+        Route::get('/contrato-tipos/{id}/clausulas', [ContratoTipoController::class, 'getClausulas']);
+        Route::post('/contrato-tipos/{id}/clausulas', [ContratoTipoController::class, 'addClausula']);
+        Route::delete('/contrato-tipos/{tipoId}/clausulas/{clausulaId}', [ContratoTipoController::class, 'removeClausula']);
+        // Excluir 'index' do apiResource pois já temos a rota acima
+        Route::apiResource('contrato-tipos', ContratoTipoController::class)->except(['index']);
+
+        // Gestão de Cláusulas (admin only)
+        Route::apiResource('clausulas', ClausulaController::class);
 
         // Gestão de Selos
         Route::apiResource('selos', SeloController::class);
@@ -191,6 +221,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/contratos', [UserController::class, 'contratosDoUsuario']);
         Route::get('/{id}/selos', [UserController::class, 'selosDoUsuario']);
         Route::get('/conexoes', [UserController::class, 'conexoesDoUsuario']);
+        Route::get('/conexoes/status', [ConnectionStatusController::class, 'checkChanges']);
+        Route::post('/foto/upload', [UserController::class, 'uploadFoto']);
+        Route::delete('/foto/remover', [UserController::class, 'removerFoto']);
+        // Rotas de conexões (compatibilidade com frontend)
+        Route::delete('/conexoes/{id}', [UsuarioConexaoController::class, 'excluirConexao']);
+        Route::post('/conexoes/{id}/aceitar', [UsuarioConexaoController::class, 'aceitarConexao']);
     });
     
     // Rotas do App - Grupo
@@ -211,6 +247,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/excluir/{id}', [UsuarioConexaoController::class, 'excluirConexao']);
     });
     
+    // Rotas do App - Compras Adicionais
+    Route::prefix('additional-purchases')->group(function () {
+        Route::get('/prices', [AdditionalPurchaseController::class, 'getPrices']);
+        Route::get('/limits', [AdditionalPurchaseController::class, 'getAvailableLimits']);
+        Route::get('/', [AdditionalPurchaseController::class, 'index']);
+        Route::post('/', [AdditionalPurchaseController::class, 'store']);
+        Route::post('/confirm-store-purchase', [AdditionalPurchaseController::class, 'confirmStorePurchase']);
+    });
+    
     // Rotas do App - Contrato
     Route::middleware(['verifica.contratos'])->prefix('contrato')->group(function () {
         Route::get('/listar', [ContratoController::class, 'index']);
@@ -221,13 +266,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/clausula/aceitar', [ContratoClausulaController::class, 'aceitarClausula']);
         Route::post('/pergunta/responder', [ContratoUsuarioPerguntaController::class, 'responder']);
         Route::post('/{id}/responder', [ContratoController::class, 'responderContrato']);
+        Route::post('/{id}/aceitar', [ContratoController::class, 'aceitarContrato']);
+        Route::post('/{id}/rejeitar', [ContratoController::class, 'rejeitarContrato']);
         Route::post('/alterar/status', [ContratoController::class, 'alterarStatusContrato']);
-    });
-    
-    // Rotas do App - Contrato Tipos
-    Route::prefix('contrato-tipos')->group(function () {
-        Route::get('/listar', [ContratoTipoController::class, 'index']);
-        Route::get('/{id}/clausulas-perguntas', [ContratoTipoController::class, 'clausulasEPerguntasPorTipo']);
     });
     
     // Rotas do App - Funcionalidade
