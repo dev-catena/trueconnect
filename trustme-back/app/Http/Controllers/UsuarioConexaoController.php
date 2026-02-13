@@ -198,7 +198,9 @@ class UsuarioConexaoController extends Controller
             $destinatarioId = $conexao->destinatario_id;
             $conexaoId = $conexao->id;
             
-            $conexao->delete();
+            // forceDelete para garantir que a conexão seja removida para ambos os usuários
+            // (soft delete poderia causar inconsistência em cenários de cache/ polling)
+            $conexao->forceDelete();
             
             // Disparar evento de broadcast
             event(new ConexaoRemovida($conexaoId, $solicitanteId, $destinatarioId));

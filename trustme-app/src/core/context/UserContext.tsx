@@ -12,6 +12,7 @@ interface UserContextType {
   setUser: (user: User | null) => void;
   setContracts: (contracts: Contract[]) => void;
   setConnections: (connections: Connection[]) => void;
+  removeConnection: (connectionId: number) => void;
   login: (cpf: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserData: () => Promise<void>;
@@ -114,8 +115,12 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
             // Função para atualizar dados quando eventos ocorrem
             // Usar uma referência estável para evitar problemas de closure
             let currentUserData = userData;
-            const handleConnectionUpdate = async () => {
+            const handleConnectionUpdate = async (eventData?: { id?: number }) => {
               if (isMounted && currentUserData?.id) {
+                // Se recebemos evento conexao.removida com id, remover localmente imediatamente
+                if (eventData?.id) {
+                  setConnections((prev) => prev.filter((c) => c.id !== eventData!.id));
+                }
                 if (__DEV__) {
                   console.log('📡 Atualizando lista de conexões...');
                 }
@@ -167,7 +172,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
             pollingCleanupRef.current = webSocketService.startPolling(
               userData.id,
               handleConnectionUpdate,
-              8000 // 8 segundos - verifica mudanças antes de atualizar
+              4000 // 4 segundos - sincronização mais rápida para o outro usuário ver exclusões
             );
             
             // Cleanup ao desmontar
@@ -429,6 +434,10 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
     }
   };
 
+  const removeConnection = (connectionId: number) => {
+    setConnections((prev) => prev.filter((c) => c.id !== connectionId));
+  };
+
   return (
     <UserContext.Provider
       value={{
@@ -439,6 +448,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
         setUser,
         setContracts,
         setConnections,
+        removeConnection,
         login,
         logout,
         refreshUserData,

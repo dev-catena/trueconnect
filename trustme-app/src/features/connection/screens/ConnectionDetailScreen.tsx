@@ -52,7 +52,7 @@ interface Props {
 const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation<ConnectionDetailScreenNavigationProp>();
   const { connection: initialConnection } = route.params;
-  const { user, refreshUserData } = useUser();
+  const { user, refreshUserData, removeConnection } = useUser();
   const [isLoading, setIsLoading] = useState(false);
   const [allSeals, setAllSeals] = useState<Seal[]>([]);
   const [userSeals, setUserSeals] = useState<UserSealsResponse | null>(null);
@@ -197,6 +197,7 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
             try {
               const api = new ApiProvider(true);
               await api.delete(`usuario/conexoes/${initialConnection.id}`);
+              removeConnection(initialConnection.id);
               Alert.alert('Sucesso', 'Conexão rejeitada');
               await refreshUserData();
               navigation.goBack();
@@ -225,6 +226,7 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
             try {
               const api = new ApiProvider(true);
               await api.delete(`usuario/conexoes/${initialConnection.id}`);
+              removeConnection(initialConnection.id);
               Alert.alert('Sucesso', 'Conexão removida');
               await refreshUserData();
               navigation.goBack();
@@ -507,6 +509,22 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
               disabled={isLoading}
             >
               <Text style={styles.actionButtonText}>Rejeitar Conexão</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {isPending && isRequestedByMe && (
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.removeButton]}
+              onPress={handleRemove}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={CustomColors.white} />
+              ) : (
+                <Text style={styles.actionButtonText}>Cancelar solicitação</Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
