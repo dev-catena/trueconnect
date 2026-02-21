@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -9,6 +9,8 @@ import { CustomColors } from '../../../core/colors';
 import SafeIcon from '../../../components/SafeIcon';
 import SignatureCountdown from '../../../components/SignatureCountdown';
 import ApiProvider from '../../../core/api/ApiProvider';
+import { webSocketService } from '../../../core/services/WebSocketService';
+import { formatDateTime } from '../../../utils/dateParser';
 
 interface Subscription {
   id: number;
@@ -51,6 +53,43 @@ const MyContractsScreen: React.FC = () => {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [hasActivePlan, setHasActivePlan] = useState<boolean | null>(null);
 
+  const loadContracts = useCallback(async () => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const api = new ApiProvider(true);
+      // usuario/contratos retorna { result: { contratos_como_contratante: [], contratos_como_participante: [] } }
+      // contrato/listar retorna { result: [...] } - array direto
+      const response = await api.get<any>('contrato/listar');
+
+      let contractsList: Contract[] = [];
+      const data = response?.result ?? response?.data ?? response;
+      if (Array.isArray(data)) {
+        contractsList = data;
+      } else if (data && typeof data === 'object') {
+        const comoContratante = Array.isArray(data.contratos_como_contratante) ? data.contratos_como_contratante : [];
+        const comoParticipante = Array.isArray(data.contratos_como_participante) ? data.contratos_como_participante : [];
+        const ids = new Set<number>();
+        contractsList = [...comoContratante, ...comoParticipante].filter((c: Contract) => {
+          if (ids.has(c.id)) return false;
+          ids.add(c.id);
+          return true;
+        });
+      }
+
+      setContracts(contractsList);
+    } catch (error: any) {
+      console.error('Erro ao carregar contratos:', error);
+      Alert.alert('Erro', 'Não foi possível carregar seus contratos. Tente novamente mais tarde.');
+    } finally {
+      setLoading(false);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     checkActivePlan();
   }, []);
@@ -61,7 +100,17 @@ const MyContractsScreen: React.FC = () => {
     } else if (hasActivePlan === false) {
       setLoading(false);
     }
-  }, [hasActivePlan]);
+  }, [hasActivePlan, loadContracts]);
+
+  // WebSocket: atualizar lista quando contrato for assinado/criado por outra parte
+  useEffect(() => {
+    const unsub = webSocketService.on('contrato.atualizado', () => {
+      if (hasActivePlan) {
+        loadContracts();
+      }
+    });
+    return unsub;
+  }, [hasActivePlan, loadContracts]);
 
   const checkActivePlan = async () => {
     try {
@@ -90,34 +139,6 @@ const MyContractsScreen: React.FC = () => {
     }
   };
 
-  const loadContracts = async () => {
-    if (!user?.id) {
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const api = new ApiProvider(true);
-      const response = await api.get<Contract[] | { result: Contract[] }>('usuario/contratos');
-
-      let contractsList: Contract[] = [];
-      if (Array.isArray(response)) {
-        contractsList = response;
-      } else if (response?.result && Array.isArray(response.result)) {
-        contractsList = response.result;
-      } else if (response?.data && Array.isArray(response.data)) {
-        contractsList = response.data;
-      }
-
-      setContracts(contractsList);
-    } catch (error: any) {
-      console.error('Erro ao carregar contratos:', error);
-      Alert.alert('Erro', 'Não foi possível carregar seus contratos. Tente novamente mais tarde.');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getStatusColor = (status?: string) => {
     const colors: { [key: string]: string } = {
@@ -269,9 +290,9 @@ const MyContractsScreen: React.FC = () => {
                 )}
                 {contract.dt_inicio && (
                   <View style={styles.detailRow}>
-                    <SafeIcon name="calendar" size={16} color={CustomColors.activeGreyed} />
+                    <SafeIcon name="checkmark-circle" size={16} color={CustomColors.successGreen} />
                     <Text style={styles.detailText}>
-                      Início: {formatDate(contract.dt_inicio)}
+                      Assinado em: {formatDateTime(contract.dt_inicio)}
                     </Text>
                   </View>
                 )}

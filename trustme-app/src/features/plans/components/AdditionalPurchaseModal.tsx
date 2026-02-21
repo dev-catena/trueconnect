@@ -71,13 +71,8 @@ const AdditionalPurchaseModal: React.FC<AdditionalPurchaseModalProps> = ({
 
   console.log('🔴🔴🔴 AdditionalPurchaseModal - RENDERIZANDO MODAL com type:', type);
 
-  const unitPrice = type === 'contracts' 
-    ? prices.contracts.unit_price 
-    : prices.connections.unit_price;
-  
-  const maxQuantity = type === 'contracts' 
-    ? prices.contracts.max_quantity 
-    : prices.connections.max_quantity;
+  const unitPrice = type === 'contracts' ? prices.contracts.unit_price : prices.connections.unit_price;
+  const maxQuantity = type === 'contracts' ? prices.contracts.max_quantity : prices.connections.max_quantity;
 
   const totalPrice = unitPrice * quantity;
 

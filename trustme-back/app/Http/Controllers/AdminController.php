@@ -101,7 +101,7 @@ class AdminController extends Controller
             'name' => $request->name,
             'nome_completo' => $request->name,
             'email' => $request->email,
-            'password' => \Hash::make($request->password),
+            'password' => $request->password, // Cast 'hashed' no model aplica Hash::make automaticamente
             'role' => 'servicedesk',
             'email_verified_at' => now(),
         ]);

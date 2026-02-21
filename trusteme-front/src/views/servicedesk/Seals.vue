@@ -103,18 +103,13 @@
                           Abrir PDF
                         </a>
                       </div>
-                      <!-- Imagem -->
-                      <img
-                        v-else-if="getDocumentUrl(doc.file_path, doc.file_url)"
-                        :src="getDocumentUrl(doc.file_path, doc.file_url)"
-                        :alt="doc.file_name"
-                        class="w-full h-full object-cover cursor-pointer"
-                        @click="openImageModal(doc)"
-                        @error="handleImageError($event, doc)"
+                      <!-- Imagem - carrega via API com autenticação (igual ao admin) -->
+                      <SealDocumentImage
+                        v-else
+                        :document="doc"
+                        :request-id="request.id"
+                        @click="openImageModal(doc, request)"
                       />
-                      <div v-else class="absolute inset-0 flex items-center justify-center bg-gray-100">
-                        <p class="text-xs text-gray-400">Imagem não disponível</p>
-                      </div>
                     </div>
                     <p class="text-xs text-gray-500 mt-2">{{ doc.file_name }}</p>
                   </div>
@@ -197,11 +192,10 @@
 
     <!-- Modal Visualizar Imagem -->
     <Modal :show="showImageModal" @close="closeImageModal" :title="getDocumentTypeLabel(selectedImage?.document_type)">
-      <div v-if="selectedImage">
-        <img
-          :src="getDocumentUrl(selectedImage.file_path, selectedImage.file_url)"
-          :alt="selectedImage.file_name"
-          class="w-full rounded-lg"
+      <div v-if="selectedImage && selectedRequest" class="min-h-[300px]">
+        <SealDocumentImage
+          :document="selectedImage"
+          :request-id="selectedRequest.id"
         />
         <p class="text-sm text-gray-500 mt-2">{{ selectedImage.file_name }}</p>
       </div>
@@ -213,7 +207,9 @@
 import { ref, computed, onMounted } from 'vue'
 import Loader from '@/components/Loader.vue'
 import Modal from '@/components/Modal.vue'
+import SealDocumentImage from '@/components/SealDocumentImage.vue'
 import api from '@/services/api'
+import { CONFIG } from '@/config/environment'
 
 const requests = ref([])
 const loading = ref(true)
@@ -296,48 +292,16 @@ const isPdfFile = (fileName) => {
 }
 
 const getDocumentUrl = (filePath, fileUrl) => {
-  // Priorizar file_url se disponível (URL completa gerada pelo backend)
+  const storageBase = CONFIG.STORAGE_BASE_URL || window.location.origin
+  if (fileUrl && fileUrl.startsWith('http')) return fileUrl
   if (fileUrl) {
-    // Garantir que a URL seja absoluta
-    if (fileUrl.startsWith('http')) {
-      return fileUrl
-    }
-    // Se for relativa, adicionar a base URL
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
-    const url = fileUrl.startsWith('/') ? `${baseUrl}${fileUrl}` : `${baseUrl}/${fileUrl}`
-    console.log('URL gerada de file_url:', url)
+    const url = fileUrl.startsWith('/') ? `${storageBase}${fileUrl}` : `${storageBase}/${fileUrl}`
     return url
   }
-  if (!filePath) {
-    console.warn('getDocumentUrl: filePath e fileUrl estão vazios')
-    return ''
-  }
-  // Se já for uma URL completa, retornar como está
+  if (!filePath) return ''
   if (filePath.startsWith('http')) return filePath
-  // Construir URL do backend
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
-  // Remover barras duplicadas e garantir formato correto
   const cleanPath = filePath.startsWith('/') ? filePath : `/${filePath}`
-  const url = `${baseUrl}/storage${cleanPath}`
-  console.log('URL gerada de file_path:', url, 'filePath original:', filePath)
-  return url
-}
-
-const handleImageError = (event, doc) => {
-  console.error('Erro ao carregar imagem:', {
-    src: event.target.src,
-    file_path: doc?.file_path,
-    file_url: doc?.file_url
-  })
-  // Substituir por uma imagem placeholder ou mensagem de erro
-  event.target.style.display = 'none'
-  const parent = event.target.parentElement
-  if (parent && !parent.querySelector('.error-message')) {
-    const errorDiv = document.createElement('div')
-    errorDiv.className = 'error-message absolute inset-0 flex items-center justify-center bg-gray-100'
-    errorDiv.innerHTML = '<p class="text-xs text-gray-400 text-center px-2">Erro ao carregar imagem</p>'
-    parent.appendChild(errorDiv)
-  }
+  return `${storageBase}/storage${cleanPath}`
 }
 
 const fetchRequests = async () => {
@@ -370,21 +334,10 @@ const fetchRequests = async () => {
         const detailResponse = await api.get(`/servicedesk/requests/${request.id}`)
         if (detailResponse.data.success && detailResponse.data.data) {
           request.documents = (detailResponse.data.data.documents || []).map(doc => {
-            // Garantir que file_url seja gerada se não existir
-            if (!doc.file_url && doc.file_path) {
-              const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
-              const cleanPath = doc.file_path.startsWith('/') ? doc.file_path : `/${doc.file_path}`
-              doc.file_url = `${baseUrl}/storage${cleanPath}`
-            }
-            console.log('Documento processado:', { 
-              id: doc.id,
-              document_type: doc.document_type,
-              file_name: doc.file_name,
-              file_path: doc.file_path, 
-              file_url: doc.file_url,
-              final_url: getDocumentUrl(doc.file_path, doc.file_url)
-            })
-            return doc
+            const storageBase = CONFIG.STORAGE_BASE_URL || window.location.origin
+            const path = doc.file_path?.startsWith('/') ? doc.file_path.slice(1) : (doc.file_path || '')
+            const fullStorageUrl = path ? `${storageBase.replace(/\/$/, '')}/storage/${path}` : null
+            return { ...doc, file_url: fullStorageUrl || doc.file_url }
           })
         }
       } catch (error) {
@@ -478,8 +431,9 @@ const rejectRequest = async () => {
   }
 }
 
-const openImageModal = (doc) => {
+const openImageModal = (doc, request) => {
   selectedImage.value = doc
+  selectedRequest.value = request || selectedRequest.value
   showImageModal.value = true
 }
 

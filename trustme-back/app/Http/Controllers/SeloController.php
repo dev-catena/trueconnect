@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\SealRequestAtualizado;
 use App\Models\Selo;
 use App\Models\SealRequest;
 use App\Models\SealDocument;
@@ -10,11 +11,36 @@ use App\Models\UserSeal;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Database\QueryException;
 
 class SeloController extends Controller
 {
+    /**
+     * Normaliza documentos_evidencias para formato [{nome, obrigatorio}].
+     * Aceita formato legado (array de strings) ou novo (array de objetos).
+     */
+    private static function normalizeDocumentosEvidencias($raw): array
+    {
+        if (!is_array($raw) || empty($raw)) {
+            return [];
+        }
+        $result = [];
+        foreach ($raw as $item) {
+            if (is_string($item) && trim($item) !== '') {
+                $result[] = ['nome' => trim($item), 'obrigatorio' => true];
+            } elseif (is_array($item) && !empty($item['nome'])) {
+                $result[] = [
+                    'nome' => trim($item['nome']),
+                    'obrigatorio' => (bool)($item['obrigatorio'] ?? true),
+                ];
+            }
+        }
+        return $result;
+    }
+
     public function index()
     {
         // Verificar quais colunas existem na tabela
@@ -76,12 +102,16 @@ class SeloController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'codigo' => 'required|string|max:255|unique:selos,codigo',
+            'codigo' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('selos', 'codigo')->whereNull('deleted_at'),
+            ],
             'nome' => 'required|string|max:255',
             'descricao' => 'nullable|string',
             'validade' => 'nullable|integer|min:0',
             'documentos_evidencias' => 'nullable|array',
-            'documentos_evidencias.*' => 'string',
             'descricao_como_obter' => 'nullable|string',
             'custo_obtencao' => 'nullable|numeric|min:0',
             'ativo' => 'boolean'
@@ -97,8 +127,8 @@ class SeloController extends Controller
         // Preparar dados - apenas campos que existem na tabela
         $data = [
             'codigo' => $request->codigo,
-            'descricao' => $request->descricao ?? $request->nome, // Usar nome como descricao se descricao não existir
-            'validade' => $request->validade,
+            'descricao' => $request->descricao ?? $request->nome,
+            'validade' => $request->validade !== null && $request->validade !== '' ? (int) $request->validade : 0,
         ];
         
         // Verificar se as colunas existem antes de adicionar
@@ -108,10 +138,10 @@ class SeloController extends Controller
             $data['nome'] = $request->nome;
         }
         if (in_array('documentos_evidencias', $columns) && $request->has('documentos_evidencias')) {
-            // O modelo já tem cast para array, então podemos passar o array diretamente
-            $data['documentos_evidencias'] = is_array($request->documentos_evidencias) 
-                ? $request->documentos_evidencias 
+            $raw = is_array($request->documentos_evidencias)
+                ? $request->documentos_evidencias
                 : json_decode($request->documentos_evidencias, true);
+            $data['documentos_evidencias'] = self::normalizeDocumentosEvidencias($raw ?? []);
         }
         if (in_array('descricao_como_obter', $columns) && $request->has('descricao_como_obter')) {
             $data['descricao_como_obter'] = $request->descricao_como_obter;
@@ -125,6 +155,9 @@ class SeloController extends Controller
         if (in_array('ativo', $columns)) {
             $data['ativo'] = $request->has('ativo') ? (bool)$request->ativo : true;
         }
+        if (in_array('disponivel', $columns)) {
+            $data['disponivel'] = $request->has('disponivel') ? (int)$request->disponivel : 0;
+        }
         
         try {
             $selo = Selo::create($data);
@@ -134,6 +167,15 @@ class SeloController extends Controller
                 'data' => $selo,
                 'message' => 'Selo criado com sucesso'
             ], 201);
+        } catch (QueryException $e) {
+            if ($e->getCode() === '23000' && str_contains($e->getMessage(), 'Duplicate entry')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Já existe um selo com este código. Por favor, utilize um código único.',
+                    'errors' => ['codigo' => ['O código informado já está em uso.']]
+                ], 422);
+            }
+            throw $e;
         } catch (\Exception $e) {
             \Log::error('Erro ao criar selo: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
@@ -165,12 +207,17 @@ class SeloController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'codigo' => 'sometimes|required|string|max:255|unique:selos,codigo,' . $id,
+            'codigo' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('selos', 'codigo')->ignore($id)->whereNull('deleted_at'),
+            ],
             'nome' => 'sometimes|required|string|max:255',
             'descricao' => 'nullable|string',
             'validade' => 'nullable|integer|min:0',
             'documentos_evidencias' => 'nullable|array',
-            'documentos_evidencias.*' => 'string',
             'descricao_como_obter' => 'nullable|string',
             'custo_obtencao' => 'nullable|numeric|min:0',
             'ativo' => 'boolean'
@@ -202,10 +249,10 @@ class SeloController extends Controller
             $data['nome'] = $request->nome;
         }
         if (in_array('documentos_evidencias', $columns) && $request->has('documentos_evidencias')) {
-            // O modelo já tem cast para array, então podemos passar o array diretamente
-            $data['documentos_evidencias'] = is_array($request->documentos_evidencias) 
-                ? $request->documentos_evidencias 
+            $raw = is_array($request->documentos_evidencias)
+                ? $request->documentos_evidencias
                 : json_decode($request->documentos_evidencias, true);
+            $data['documentos_evidencias'] = self::normalizeDocumentosEvidencias($raw ?? []);
         }
         if (in_array('descricao_como_obter', $columns) && $request->has('descricao_como_obter')) {
             $data['descricao_como_obter'] = $request->descricao_como_obter;
@@ -228,6 +275,15 @@ class SeloController extends Controller
                 'data' => $selo,
                 'message' => 'Selo atualizado com sucesso'
             ]);
+        } catch (QueryException $e) {
+            if (str_contains($e->getMessage(), 'Duplicate entry') && str_contains($e->getMessage(), 'codigo')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Já existe um selo com este código. Por favor, utilize um código único.',
+                    'errors' => ['codigo' => ['O código informado já está em uso.']]
+                ], 422);
+            }
+            throw $e;
         } catch (\Exception $e) {
             \Log::error('Erro ao atualizar selo: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
@@ -280,33 +336,36 @@ class SeloController extends Controller
             ], 404);
         }
 
-        // Obter documentos necessários do selo
-        $requiredDocuments = $selo->documentos_evidencias && is_array($selo->documentos_evidencias) && count($selo->documentos_evidencias) > 0
-            ? $selo->documentos_evidencias
-            : ['Frente', 'Trás']; // Fallback para compatibilidade
-
-        // Normalizar nomes dos documentos para validação (frente, tras, etc)
-        $normalizedDocs = [];
-        foreach ($requiredDocuments as $doc) {
-            $normalized = strtolower($doc);
-            if ($normalized === 'frente') {
-                $normalizedDocs['frente'] = $doc;
-            } elseif ($normalized === 'trás' || $normalized === 'tras') {
-                $normalizedDocs['tras'] = $doc;
-            } else {
-                // Para outros documentos, usar o nome normalizado (sem espaços, com underscore)
-                $key = strtolower(preg_replace('/\s+/', '_', $doc));
-                $normalizedDocs[$key] = $doc;
-            }
+        // Obter e normalizar documentos do selo (suporta formato antigo e novo)
+        $docItems = self::normalizeDocumentosEvidencias(
+            $selo->documentos_evidencias && is_array($selo->documentos_evidencias) ? $selo->documentos_evidencias : []
+        );
+        if (empty($docItems)) {
+            $docItems = [['nome' => 'Frente', 'obrigatorio' => true], ['nome' => 'Trás', 'obrigatorio' => true]];
         }
 
-        // Criar regras de validação dinâmicas
+        // Mapear docKey => { nome exibido, obrigatorio }
+        $normalizedDocs = [];
+        foreach ($docItems as $item) {
+            $nome = $item['nome'];
+            $normalized = strtolower($nome);
+            if ($normalized === 'frente') {
+                $key = 'frente';
+            } elseif ($normalized === 'trás' || $normalized === 'tras') {
+                $key = 'tras';
+            } else {
+                $key = strtolower(preg_replace('/\s+/', '_', $nome));
+            }
+            $normalizedDocs[$key] = ['nome' => $nome, 'obrigatorio' => $item['obrigatorio']];
+        }
+
+        // Regras: selo_id + apenas docs obrigatórios como required
         $validationRules = [
             'selo_id' => 'required|exists:selos,id',
         ];
-
-        foreach (array_keys($normalizedDocs) as $docKey) {
-            $validationRules[$docKey] = 'required|file|mimes:jpeg,png,jpg,pdf|max:10240';
+        foreach ($normalizedDocs as $docKey => $meta) {
+            $rule = $meta['obrigatorio'] ? 'required|file|mimes:jpeg,png,jpg,pdf|max:10240' : 'nullable|file|mimes:jpeg,png,jpg,pdf|max:10240';
+            $validationRules[$docKey] = $rule;
         }
 
         $validator = Validator::make($request->all(), $validationRules);
@@ -318,18 +377,18 @@ class SeloController extends Controller
             ], 422);
         }
 
-        // Verificar se todos os arquivos foram enviados corretamente
+        // Verificar documentos obrigatórios
         $missingFiles = [];
-        foreach (array_keys($normalizedDocs) as $docKey) {
-            if (!$request->hasFile($docKey)) {
-                $missingFiles[] = $normalizedDocs[$docKey];
+        foreach ($normalizedDocs as $docKey => $meta) {
+            if ($meta['obrigatorio'] && !$request->hasFile($docKey)) {
+                $missingFiles[] = $meta['nome'];
             }
         }
 
         if (count($missingFiles) > 0) {
             return response()->json([
                 'success' => false,
-                'message' => 'Os seguintes documentos não foram enviados: ' . implode(', ', $missingFiles)
+                'message' => 'Os seguintes documentos são obrigatórios e não foram enviados: ' . implode(', ', $missingFiles)
             ], 422);
         }
 
@@ -348,6 +407,19 @@ class SeloController extends Controller
             ]);
         }
 
+        // Impedir nova solicitação se já existe uma do mesmo tipo em andamento (pending ou under_review)
+        $existeEmAndamento = SealRequest::where('user_id', $user->id)
+            ->where('seal_type_id', $sealType->id)
+            ->whereIn('status', ['pending', 'under_review'])
+            ->exists();
+
+        if ($existeEmAndamento) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Você já possui uma solicitação deste selo em análise. Aguarde a avaliação antes de solicitar novamente.',
+            ], 422);
+        }
+
         try {
             // Criar solicitação de selo
             $sealRequest = SealRequest::create([
@@ -356,8 +428,8 @@ class SeloController extends Controller
                 'status' => 'pending',
             ]);
 
-            // Upload e criação de documentos dinamicamente
-            foreach ($normalizedDocs as $docKey => $docName) {
+            // Upload e criação de documentos dinamicamente (obrigatórios e opcionais enviados)
+            foreach ($normalizedDocs as $docKey => $meta) {
                 if ($request->hasFile($docKey)) {
                     $file = $request->file($docKey);
                     $filePath = $file->store('seal_documents', 'public');
@@ -372,6 +444,8 @@ class SeloController extends Controller
                     ]);
                 }
             }
+
+            SealRequestAtualizado::dispatch($sealRequest->fresh(), 'criada');
 
             return response()->json([
                 'success' => true,
@@ -533,6 +607,7 @@ class SeloController extends Controller
         }
 
         // Selo não requer aprovação: aprovar automaticamente
+        $expiresAt = $this->calcularExpiresAtSelo($sealRequest->sealType);
         UserSeal::updateOrCreate(
             [
                 'user_id' => $sealRequest->user_id,
@@ -542,7 +617,7 @@ class SeloController extends Controller
                 'status' => 'approved',
                 'approved_at' => now(),
                 'approved_by' => $user->id,
-                'expires_at' => null,
+                'expires_at' => $expiresAt,
             ]
         );
         $sealRequest->update([
@@ -555,5 +630,21 @@ class SeloController extends Controller
             'success' => true,
             'message' => 'Pagamento confirmado. Seu selo foi ativado com sucesso!'
         ]);
+    }
+
+    /**
+     * Calcula expires_at com base na validade (dias) do selo.
+     * Validade vem do Selo (codigo = SealType.code).
+     */
+    private function calcularExpiresAtSelo(?SealType $sealType): ?\DateTimeInterface
+    {
+        if (!$sealType?->code) {
+            return null;
+        }
+        $selo = Selo::where('codigo', $sealType->code)->first();
+        if (!$selo || !$selo->validade || $selo->validade <= 0) {
+            return null;
+        }
+        return now()->addDays((int) $selo->validade);
     }
 }

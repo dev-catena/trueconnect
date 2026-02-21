@@ -6,6 +6,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../types/navigation';
 import { CustomColors } from '../core/colors';
 import SafeIcon from './SafeIcon';
+import ProfileHeaderButton from './ProfileHeaderButton';
+import { useUser } from '../core/context/UserContext';
 
 interface CustomScaffoldProps {
   children: React.ReactNode;
@@ -23,6 +25,7 @@ const CustomScaffold: React.FC<CustomScaffoldProps> = ({
   floatingActionButton,
 }) => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { user } = useUser();
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -48,12 +51,10 @@ const CustomScaffold: React.FC<CustomScaffoldProps> = ({
             <Text style={styles.headerTitle}>{title}</Text>
           </View>
           {showProfileButton && (
-            <TouchableOpacity
+            <ProfileHeaderButton
+              user={user}
               onPress={() => navigation.navigate('Profile')}
-              style={styles.profileButton}
-            >
-              <SafeIcon name="profile" size={28} color={CustomColors.white} />
-            </TouchableOpacity>
+            />
           )}
         </View>
       </View>
@@ -114,9 +115,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: CustomColors.white,
-  },
-  profileButton: {
-    padding: 4,
   },
   content: {
     flex: 1,

@@ -1,8 +1,9 @@
 import axios, { AxiosInstance } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL } from '../../utils/constants';
 
 const IS_DEV = __DEV__;
-const BASE_URL = IS_DEV ? 'http://10.102.0.103:8001/api' : 'https://api-trustme.catenasystem.com.br/api';
+const BASE_URL = API_BASE_URL;
 
 if (IS_DEV) {
   console.log('🔗 API Config:', { BASE_URL });
@@ -58,13 +59,14 @@ function createApiInstance(useToken: boolean = true): IApiProvider {
         }
       }
       
-      // Se for FormData, remover Content-Type para axios definir automaticamente com boundary
+      // Se for FormData, remover Content-Type e aumentar timeout (uploads podem demorar em redes móveis)
       if (config.data instanceof FormData) {
         if (config.headers) {
           delete config.headers['Content-Type'];
         }
+        config.timeout = config.timeout ?? 120000; // 2 minutos para uploads
         if (IS_DEV) {
-          console.log(`📤 FormData detectado, Content-Type será definido automaticamente`);
+          console.log(`📤 FormData detectado, Content-Type automático, timeout: ${config.timeout}ms`);
         }
       }
       

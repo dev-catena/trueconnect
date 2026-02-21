@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../types/navigation';
 import { useUser } from '../../../core/context/UserContext';
@@ -40,12 +40,21 @@ const MyConnectionsScreen: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (hasActivePlan === true) {
+    if (user?.id) {
       loadConnections();
-    } else if (hasActivePlan === false) {
+    } else {
       setLoading(false);
     }
-  }, [hasActivePlan]);
+  }, [user?.id]);
+
+  // Recarregar conexões ao retornar à tela
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user?.id) {
+        loadConnections();
+      }
+    }, [user?.id])
+  );
 
   const checkActivePlan = async () => {
     try {
@@ -73,6 +82,10 @@ const MyConnectionsScreen: React.FC = () => {
       setHasActivePlan(false);
     }
   };
+
+  useEffect(() => {
+    checkActivePlan();
+  }, []);
 
   const loadConnections = async () => {
     if (!user?.id) {
@@ -190,22 +203,20 @@ const MyConnectionsScreen: React.FC = () => {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {hasActivePlan === false ? (
-          <View style={styles.noPlanContainer}>
-            <SafeIcon name="link-off" size={64} color={CustomColors.activeGreyed} />
-            <Text style={styles.noPlanTitle}>Funcionalidade Indisponível</Text>
-            <Text style={styles.noPlanText}>
-              Esta funcionalidade não está disponível no momento. Para acessar suas conexões, você precisa contratar um plano.
+        {hasActivePlan === false && (
+          <View style={styles.planBanner}>
+            <Text style={styles.planBannerText}>
+              Assine um plano para solicitar novas conexões.
             </Text>
             <TouchableOpacity
-              style={styles.planButton}
+              style={styles.planBannerButton}
               onPress={() => navigation.navigate('Plans')}
             >
-              <Text style={styles.planButtonText}>Contratar Plano</Text>
-              <SafeIcon name="arrow-forward" size={20} color={CustomColors.white} />
+              <Text style={styles.planBannerButtonText}>Ver Planos</Text>
             </TouchableOpacity>
           </View>
-        ) : connections.length === 0 ? (
+        )}
+        {connections.length === 0 ? (
           <View style={styles.emptyContainer}>
             <SafeIcon name="link-off" size={64} color={CustomColors.activeGreyed} />
             <Text style={styles.emptyTitle}>Nenhuma conexão encontrada</Text>
@@ -326,6 +337,31 @@ const styles = StyleSheet.create({
     color: CustomColors.activeGreyed,
     textAlign: 'center',
     paddingHorizontal: 32,
+  },
+  planBanner: {
+    backgroundColor: CustomColors.activeColor + '20',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  planBannerText: {
+    flex: 1,
+    fontSize: 14,
+    color: CustomColors.activeGreyed,
+  },
+  planBannerButton: {
+    backgroundColor: CustomColors.activeColor,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  planBannerButtonText: {
+    color: CustomColors.white,
+    fontSize: 14,
+    fontWeight: '600',
   },
   noPlanContainer: {
     flex: 1,

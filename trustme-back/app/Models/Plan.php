@@ -18,13 +18,17 @@ class Plan extends Model
         'one_time_price',
         'seals_limit',
         'contracts_limit',
+        'connections_limit',
+        'pending_requests_limit',
         'features',
         'is_active',
+        'is_default',
     ];
 
     protected $casts = [
         'features' => 'array',
         'is_active' => 'boolean',
+        'is_default' => 'boolean',
         'monthly_price' => 'decimal:2',
         'semiannual_price' => 'decimal:2',
         'annual_price' => 'decimal:2',
@@ -49,6 +53,8 @@ class Plan extends Model
 
     public function isUnlimited()
     {
-        return is_null($this->seals_limit) && is_null($this->contracts_limit);
+        return is_null($this->seals_limit)
+            && is_null($this->contracts_limit)
+            && is_null($this->connections_limit);
     }
 }

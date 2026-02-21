@@ -160,22 +160,32 @@
           <label class="block text-sm font-medium text-gray-700 mb-2">
             Documentos e Evidências Necessárias
           </label>
+          <p class="text-xs text-gray-500 mb-2">Marque como obrigatório os documentos que o usuário deve enviar para solicitar o selo.</p>
             <div class="space-y-2">
               <div
                 v-for="(doc, index) in seloForm.documentos_evidencias"
                 :key="index"
-                class="flex items-center gap-2"
+                class="flex items-center gap-2 flex-wrap"
               >
                 <FormInput
-                  v-model="seloForm.documentos_evidencias[index]"
+                  v-model="seloForm.documentos_evidencias[index].nome"
                   :label="`Documento ${index + 1}`"
                   type="text"
                   placeholder="Ex: RG, CPF, Comprovante de residência..."
+                  class="flex-1 min-w-[200px]"
                 />
+                <label class="flex items-center gap-1.5 shrink-0 mt-6">
+                  <input
+                    type="checkbox"
+                    v-model="seloForm.documentos_evidencias[index].obrigatorio"
+                    class="form-checkbox h-4 w-4 text-trust-600"
+                  >
+                  <span class="text-sm text-gray-700">Obrigatório</span>
+                </label>
                 <button
                   type="button"
                   @click="removeDocumento(index)"
-                  class="px-3 py-2 text-red-600 hover:text-red-800"
+                  class="mt-6 px-3 py-2 text-red-600 hover:text-red-800"
                 >
                   <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -283,7 +293,7 @@ const seloForm = reactive({
 })
 
 const addDocumento = () => {
-  seloForm.documentos_evidencias.push('')
+  seloForm.documentos_evidencias.push({ nome: '', obrigatorio: true })
 }
 
 const removeDocumento = (index) => {
@@ -339,9 +349,17 @@ const editSelo = async (selo) => {
     seloForm.nome = String(seloData.nome || seloData.descricao || '').trim()
     seloForm.descricao = String(seloData.descricao || '').trim()
     seloForm.validade = seloData.validade ? String(seloData.validade) : ''
-    seloForm.documentos_evidencias = Array.isArray(seloData.documentos_evidencias) 
-      ? [...seloData.documentos_evidencias] 
-      : []
+    // Normalizar formato: aceita array de strings (legado) ou [{nome, obrigatorio}]
+    const raw = seloData.documentos_evidencias
+    if (Array.isArray(raw) && raw.length > 0) {
+      seloForm.documentos_evidencias = raw.map(item =>
+        typeof item === 'string'
+          ? { nome: item.trim(), obrigatorio: true }
+          : { nome: (item.nome || '').trim(), obrigatorio: item.obrigatorio !== false }
+      ).filter(d => d.nome !== '')
+    } else {
+      seloForm.documentos_evidencias = []
+    }
     seloForm.descricao_como_obter = String(seloData.descricao_como_obter || '').trim()
     seloForm.custo_obtencao = seloData.custo_obtencao || 0
     seloForm.ativo = Boolean(seloData.ativo !== undefined ? seloData.ativo : true)
@@ -382,7 +400,9 @@ const saveSelo = async () => {
       nome: String(seloForm.nome).trim(),
       descricao: seloForm.descricao ? String(seloForm.descricao).trim() : null,
       validade: seloForm.validade ? parseInt(seloForm.validade) : null,
-      documentos_evidencias: seloForm.documentos_evidencias.filter(doc => doc.trim() !== ''),
+      documentos_evidencias: seloForm.documentos_evidencias
+        .filter(doc => doc.nome && String(doc.nome).trim() !== '')
+        .map(doc => ({ nome: String(doc.nome).trim(), obrigatorio: Boolean(doc.obrigatorio) })),
       descricao_como_obter: seloForm.descricao_como_obter ? String(seloForm.descricao_como_obter).trim() : null,
       custo_obtencao: seloForm.custo_obtencao != null && seloForm.custo_obtencao !== '' ? parseFloat(seloForm.custo_obtencao) : 0,
       ativo: Boolean(seloForm.ativo)
@@ -410,8 +430,14 @@ const saveSelo = async () => {
     errors.value = {}
     
     if (error.response?.data?.errors) {
-      // Mostrar erros de validação
-      errors.value = error.response.data.errors
+      // Normalizar: Laravel retorna { campo: ['msg'] }, FormInput espera string
+      const raw = error.response.data.errors
+      errors.value = Object.fromEntries(
+        Object.entries(raw).map(([key, val]) => [
+          key,
+          Array.isArray(val) ? val.join(' ') : String(val ?? '')
+        ])
+      )
       
       // Mapear nomes de campos para português
       const fieldNames = {

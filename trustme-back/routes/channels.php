@@ -21,3 +21,8 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
 Broadcast::channel('user.{id}', function ($user, $id) {
     return (int) $user->id === (int) $id;
 });
+
+// Canal privado para solicitações de selos - apenas admin e servicedesk
+Broadcast::channel('seal-requests', function ($user) {
+    return in_array($user->role ?? '', ['admin', 'servicedesk']);
+});

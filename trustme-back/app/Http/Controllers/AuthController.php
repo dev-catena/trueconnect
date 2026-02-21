@@ -195,9 +195,9 @@ class AuthController extends Controller
             return $this->fail('Senha atual incorreta', null, 400);
         }
 
-        // Atualiza a senha do usuário
+        // Atualiza a senha do usuário (cast 'hashed' no model aplica Hash::make automaticamente)
         $usuario->update([
-            'password' => Hash::make($request->input('new_password')),
+            'password' => $request->input('new_password'),
         ]);
 
         return $this->ok('Senha alterada com sucesso', null, 200);
@@ -258,7 +258,7 @@ class AuthController extends Controller
             'name' => $request->nome_completo, // Mantém compatibilidade com web
             'CPF' => $request->CPF,
             'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'password' => $request->password, // Cast 'hashed' no model aplica Hash::make automaticamente
             'role' => 'user',
         ];
 
@@ -520,9 +520,9 @@ class AuthController extends Controller
                     ], 422);
                 }
 
-                // Atualizar senha
+                // Atualizar senha (cast 'hashed' no model aplica Hash::make automaticamente)
                 $usuario->update([
-                    'password' => Hash::make($request->input('password'))
+                    'password' => $request->input('password')
                 ]);
 
                 // Remover código usado
@@ -539,8 +539,9 @@ class AuthController extends Controller
                 $status = Password::reset(
                     $request->only('email', 'password', 'password_confirmation', 'token'),
                     function ($user, $password) {
+                        // Cast 'hashed' no model aplica Hash::make automaticamente
                         $user->forceFill([
-                            'password' => Hash::make($password)
+                            'password' => $password
                         ])->setRememberToken(Str::random(60));
 
                         $user->save();

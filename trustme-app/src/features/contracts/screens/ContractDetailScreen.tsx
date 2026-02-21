@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
-import { RouteProp, useNavigation } from '@react-navigation/native';
+import { RouteProp, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ContractsStackParamList, HomeStackParamList } from '../../../types/navigation';
 import { CustomColors } from '../../../core/colors';
@@ -21,6 +21,7 @@ import { Contract, Clause } from '../../../types';
 import { formatDate, formatDateTime } from '../../../utils/dateParser';
 import ApiProvider from '../../../core/api/ApiProvider';
 import { useUser } from '../../../core/context/UserContext';
+import { webSocketService } from '../../../core/services/WebSocketService';
 
 type ContractDetailScreenRouteProp = RouteProp<ContractsStackParamList | HomeStackParamList, 'ContractDetail'>;
 type ContractDetailScreenNavigationProp = NativeStackNavigationProp<
@@ -41,20 +42,76 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
   const [isLoadingClauses, setIsLoadingClauses] = useState(false);
   const [updatingClause, setUpdatingClause] = useState<number | null>(null);
 
-  // Carregar dados completos do contrato uma vez ao abrir a tela
+  // Carregar dados ao abrir e ao voltar (debounce para evitar loop com useFocusEffect)
+  useFocusEffect(
+    useCallback(() => {
+      const t = setTimeout(() => loadContractDetails(), 300);
+      return () => clearTimeout(t);
+    }, [initialContract.id])
+  );
+
+  // Quando contrato é atualizado (revogação, participante removido, etc.) - recarregar detalhes
   useEffect(() => {
-    loadContractDetails();
-    // Não manter polling contínuo para evitar loop de requisições;
-    // atualizações pontuais já são feitas após cada ação (aprovar/rejeitar/assinar).
+    const unsub = webSocketService.on('contrato.atualizado', (data: { id?: number; status?: string; acao?: string }) => {
+      if (data?.id === initialContract.id) {
+        const acoesQueRequeremReload = ['participante_removido', 'revogacao_retorno_pendente'];
+        if (data?.status === 'Pendente' || acoesQueRequeremReload.includes(data?.acao ?? '')) {
+          loadContractDetails();
+        }
+      }
+    });
+    return unsub;
   }, [initialContract.id]);
+
+  // Atualização em tempo real quando outra parte altera concordar/discordar em cláusula (Reverb)
+  useEffect(() => {
+    const unsub = webSocketService.on(
+      'clausula.contrato.atualizada',
+      (data: { contrato_id: number; clausula_id: number; usuario_id: number; aceito: boolean | null }) => {
+        if (data.contrato_id !== contract.id || data.usuario_id === user?.id) return;
+
+        setContract((prev) => {
+          if (!prev?.clausulas || !user?.id) return prev;
+          const updatedClausulas = prev.clausulas.map((c) => {
+            if (c.id !== data.clausula_id) return c;
+            const aceito_por = Array.isArray(c.aceito_por) ? [...c.aceito_por] : [];
+            const recusado_por = Array.isArray(c.recusado_por) ? [...c.recusado_por] : [];
+            const pendente_para = Array.isArray(c.pendente_para) ? [...c.pendente_para] : [];
+            const removeUser = (arr: number[]) => arr.filter((id) => id !== data.usuario_id);
+            let novaAceitoPor = removeUser(aceito_por);
+            let novaRecusadoPor = removeUser(recusado_por);
+            let novaPendentePara = removeUser(pendente_para);
+            if (data.aceito === true) {
+              novaAceitoPor = [...novaAceitoPor, data.usuario_id];
+            } else if (data.aceito === false) {
+              novaRecusadoPor = [...novaRecusadoPor, data.usuario_id];
+            } else {
+              novaPendentePara = [...novaPendentePara, data.usuario_id];
+            }
+            return {
+              ...c,
+              aceito_por: novaAceitoPor,
+              recusado_por: novaRecusadoPor,
+              pendente_para: novaPendentePara,
+            };
+          });
+          const next = { ...prev, clausulas: updatedClausulas };
+          const computed = computePodeAssinarFromClauses(next, user.id);
+          return { ...next, ...computed };
+        });
+      }
+    );
+    return unsub;
+  }, [contract.id, user?.id, computePodeAssinarFromClauses]);
 
   const loadContractDetails = async () => {
     setIsLoadingClauses(true);
     try {
       const api = new ApiProvider(true);
       const response = await api.get(`contrato/buscar-completo/${initialContract.id}`);
-      if (response && response.result) {
-        setContract(response.result as Contract);
+      const data = (response as any)?.result ?? (response as any)?.data ?? response;
+      if (data && typeof data === 'object' && (data.id || data.codigo)) {
+        setContract(data as Contract);
       }
     } catch (error: any) {
       console.error('Erro ao carregar detalhes do contrato:', error);
@@ -62,6 +119,69 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
       setIsLoadingClauses(false);
     }
   };
+
+  /** Recalcula pode_assinar e campos relacionados com base no estado atual das cláusulas */
+  const computePodeAssinarFromClauses = useCallback((
+    c: Contract,
+    currentUserId: number
+  ): { pode_assinar: boolean; todas_clausulas_coincidentes: boolean; clausulas_em_desacordo: number[] } => {
+    // Se o prazo de assinatura expirou, nunca pode assinar
+    const prazoExpirado = !!c.dt_prazo_assinatura &&
+      new Date(c.dt_prazo_assinatura).getTime() < Date.now();
+    if (prazoExpirado) {
+      return {
+        pode_assinar: false,
+        todas_clausulas_coincidentes: false,
+        clausulas_em_desacordo: c.clausulas_em_desacordo ?? [],
+      };
+    }
+
+    const participantes = c.participantes ?? (c as any).assinaturas ?? [];
+    let totalParticipantes = Math.max(participantes.length, 1);
+    const clausulas = c.clausulas ?? [];
+    // Se participantes não veio na listagem, inferir total pelas cláusulas (evita bug quando outra parte vê via WebSocket)
+    if (totalParticipantes < 2 && clausulas.length > 0) {
+      const allUserIds = new Set<number>();
+      for (const cl of clausulas) {
+        (cl.aceito_por ?? []).forEach((id: number) => allUserIds.add(id));
+        (cl.recusado_por ?? []).forEach((id: number) => allUserIds.add(id));
+      }
+      totalParticipantes = Math.max(allUserIds.size, totalParticipantes, 1);
+    }
+
+    let todasCoincidentes = clausulas.length > 0;
+    const clausulasEmDesacordo: number[] = [];
+
+    for (const clause of clausulas) {
+      const aceitoPor = clause.aceito_por ?? [];
+      const recusadoPor = clause.recusado_por ?? [];
+      const respondidos = aceitoPor.length + recusadoPor.length;
+
+      if (respondidos < totalParticipantes) {
+        todasCoincidentes = false;
+      } else if (aceitoPor.length === totalParticipantes || recusadoPor.length === totalParticipantes) {
+        // coincidente - ok
+      } else {
+        todasCoincidentes = false;
+        clausulasEmDesacordo.push(clause.id);
+      }
+    }
+
+    const meuParticipante = participantes.find(
+      (p: any) =>
+        Number(p.usuario_id) === Number(currentUserId) ||
+        Number(p.usuario?.id) === Number(currentUserId) ||
+        Number(p.id) === Number(currentUserId)
+    );
+    const aceitoVal = meuParticipante?.aceito;
+    const euAindaNaoAssinei = !meuParticipante || (aceitoVal !== true && aceitoVal !== false && aceitoVal !== 1 && aceitoVal !== 0);
+
+    return {
+      pode_assinar: todasCoincidentes && euAindaNaoAssinei,
+      todas_clausulas_coincidentes: todasCoincidentes,
+      clausulas_em_desacordo: clausulasEmDesacordo,
+    };
+  }, []);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -73,8 +193,30 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
         return CustomColors.activeGreyed;
       case 'Expirado':
         return CustomColors.vividRed;
+      case 'Rescindido':
+      case 'Excluída pela outra parte':
+        return '#B45309';
       default:
         return CustomColors.activeGreyed;
+    }
+  };
+
+  const handleRevogarClause = async (clause: Clause) => {
+    setUpdatingClause(clause.id);
+    try {
+      const api = new ApiProvider(true);
+      await api.post('contrato/clausula/revogar', {
+        contrato_id: contract.id,
+        clausula_ids: [clause.id],
+      });
+      // Recarregar do backend: status volta para Pendente, assinaturas zeradas, dt_prazo_assinatura renovada
+      await loadContractDetails();
+      await refreshUserData();
+    } catch (error: any) {
+      Alert.alert('Erro', error.response?.data?.message || 'Erro ao revogar cláusula');
+      await loadContractDetails();
+    } finally {
+      setUpdatingClause(null);
     }
   };
 
@@ -122,10 +264,9 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
             };
           });
 
-          return {
-            ...prev,
-            clausulas: updatedClausulas,
-          };
+          const next = { ...prev, clausulas: updatedClausulas };
+          const computed = computePodeAssinarFromClauses(next, user.id);
+          return { ...next, ...computed };
         });
       }
     } catch (error: any) {
@@ -180,25 +321,72 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
     );
   };
 
+  // Criador = quem criou o contrato (contratante) - só ele pode cancelar/excluir.
+  // Priorizar usuario_e_criador vindo do backend (buscar-completo) para evitar que
+  // participantes como Amanda vejam o botão "Cancelar contrato" indevidamente.
+  const isCreator =
+    typeof contract.usuario_e_criador === 'boolean'
+      ? contract.usuario_e_criador
+      : !!(user?.id && (Number(contract.contratante_id) === Number(user.id) || Number(contract.contratante?.id) === Number(user.id)));
+  const isPending = contract.status === 'Pendente';
+
   const handleDeleteContract = async () => {
+    const cancelarParaTodos = isCreator && isPending;
+    const title = cancelarParaTodos ? 'Cancelar Contrato' : 'Excluir';
+    const message = cancelarParaTodos
+      ? 'Tem certeza que deseja cancelar este contrato? Ele será removido para todas as partes e não poderá mais ser assinado.'
+      : 'Tem certeza que deseja remover este contrato da sua lista?';
+    const successMsg = cancelarParaTodos
+      ? 'Contrato cancelado com sucesso.'
+      : 'Contrato removido da sua lista.';
+
+    Alert.alert(title, message, [
+      { text: 'Não', style: 'cancel' },
+      {
+        text: cancelarParaTodos ? 'Cancelar para todos' : 'Excluir',
+        style: 'destructive',
+        onPress: async () => {
+          setIsLoading(true);
+          try {
+            const api = new ApiProvider(true);
+            await api.delete(`contrato/excluir/${contract.id}`);
+            Alert.alert('Sucesso', successMsg);
+            await refreshUserData();
+            navigation.goBack();
+          } catch (error: any) {
+            Alert.alert('Erro', error.response?.data?.message || 'Erro ao excluir contrato');
+          } finally {
+            setIsLoading(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleRemoverParticipante = (participant: any) => {
+    const nome = participant.usuario?.nome_completo || participant.usuario?.name || 'este participante';
+    const usuarioId = participant.usuario_id ?? participant.usuario?.id;
+    if (!usuarioId) return;
+    const criadorId = contract.contratante_id ?? contract.contratante?.id;
+    if (criadorId && Number(usuarioId) === Number(criadorId)) return;
+
     Alert.alert(
-      'Excluir Contrato',
-      'Tem certeza que deseja excluir este contrato? Ele será removido apenas da sua lista.',
+      'Remover participante',
+      `Tem certeza que deseja remover ${nome} do contrato?`,
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Não', style: 'cancel' },
         {
-          text: 'Excluir',
+          text: 'Remover',
           style: 'destructive',
           onPress: async () => {
             setIsLoading(true);
             try {
               const api = new ApiProvider(true);
-              await api.delete(`contrato/excluir/${contract.id}`);
-              Alert.alert('Sucesso', 'Contrato excluído da sua lista');
+              await api.post(`contrato/${contract.id}/remover-participante`, { usuario_id: usuarioId });
+              await loadContractDetails();
               await refreshUserData();
-              navigation.goBack();
             } catch (error: any) {
-              Alert.alert('Erro', error.response?.data?.message || 'Erro ao excluir contrato');
+              Alert.alert('Erro', error.response?.data?.message || 'Erro ao remover participante');
             } finally {
               setIsLoading(false);
             }
@@ -208,7 +396,34 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
     );
   };
 
-  const isPending = contract.status === 'Pendente';
+  const handleRescindContract = () => {
+    Alert.alert(
+      'Rescindir contrato',
+      'Tem certeza que deseja rescindir (desistir) deste contrato? O contrato será encerrado para todas as partes. Esta ação não pode ser desfeita.',
+      [
+        { text: 'Não', style: 'cancel' },
+        {
+          text: 'Rescindir',
+          style: 'destructive',
+          onPress: async () => {
+            setIsLoading(true);
+            try {
+              const api = new ApiProvider(true);
+              await api.post(`contrato/rescindir/${contract.id}`);
+              Alert.alert('Sucesso', 'Contrato rescindido com sucesso.');
+              await refreshUserData();
+              navigation.goBack();
+            } catch (error: any) {
+              Alert.alert('Erro', error.response?.data?.message || 'Erro ao rescindir contrato');
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const isSigningExpired =
     !!contract.dt_prazo_assinatura &&
     new Date(contract.dt_prazo_assinatura).getTime() < Date.now();
@@ -219,11 +434,27 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
         Number((p as any).usuario?.id) === Number(user?.id)
     ) || Number(contract.contratante_id) === Number(user?.id);
 
+  // Usuário assinou o contrato - usado como fallback para exibir botão Revogar em cláusulas que concordou
+  const userHasSignedContract = !!(
+    user?.id &&
+    (
+      contract.participantes?.find(
+        (p: any) =>
+          (Number(p.usuario_id) === Number(user.id) || Number(p.usuario?.id) === Number(user.id) || Number(p.id) === Number(user.id)) &&
+          (p.aceito === true || p.aceito === 1)
+      ) ||
+      (contract as any).assinaturas?.find(
+        (a: any) => Number(a.usuario_id) === Number(user.id) && (a.aceito === true || a.aceito === 1)
+      )
+    )
+  );
+
   // Verificar se o usuário já aprovou uma cláusula específica (true=concordo, false=discordo, null=pendente)
   const isClauseApprovedByUser = (clause: Clause): boolean | null => {
-    if (!user) return null;
-    if (Array.isArray(clause.aceito_por) && clause.aceito_por.includes(user.id)) return true;
-    if (Array.isArray(clause.recusado_por) && clause.recusado_por.includes(user.id)) return false;
+    if (!user?.id) return null;
+    const uid = Number(user.id);
+    if (Array.isArray(clause.aceito_por) && clause.aceito_por.some((id: any) => Number(id) === uid)) return true;
+    if (Array.isArray(clause.recusado_por) && clause.recusado_por.some((id: any) => Number(id) === uid)) return false;
     return null; // Pendente
   };
 
@@ -306,8 +537,9 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
   // Verificar status de aprovação de uma cláusula por um usuário específico
   const getClauseStatusByUserId = (clause: Clause, userId: number): boolean | null => {
     if (!Array.isArray(clause.aceito_por)) return null;
-    if (clause.aceito_por.includes(userId)) return true;
-    if (Array.isArray(clause.recusado_por) && clause.recusado_por.includes(userId)) return false;
+    const uid = Number(userId);
+    if (clause.aceito_por.some((id: any) => Number(id) === uid)) return true;
+    if (Array.isArray(clause.recusado_por) && clause.recusado_por.some((id: any) => Number(id) === uid)) return false;
     return null; // Pendente
   };
 
@@ -324,12 +556,12 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
 
   // Verificar se uma cláusula está coincidente (todos aprovaram ou todos rejeitaram)
   const isClauseCoincident = (clause: Clause): boolean => {
-    if (!contract.participantes) {
+    if (!contract.participantes || contract.participantes.length === 0) {
       return false;
     }
     
-    // Total de participantes (incluindo contratante)
-    const totalParticipants = contract.participantes.length + 1;
+    // Total de participantes (participantes já inclui contratante + stakeholders)
+    const totalParticipants = contract.participantes.length;
     
     // Contar aprovações e rejeições
     const totalAprovacoes = clause.aceito_por?.length || 0;
@@ -425,7 +657,9 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Contratante</Text>
+          <Text style={styles.sectionTitle}>
+            Contratante {isCreator && '(você criou este contrato)'}
+          </Text>
           <View style={styles.userCard}>
             <View style={styles.avatar}>
               {contract.contratante?.caminho_foto ? (
@@ -453,42 +687,62 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
         {contract.participantes && contract.participantes.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Participantes</Text>
-            {contract.participantes.map((participant, index) => (
-              <View key={index} style={styles.userCard}>
-                <View style={styles.avatar}>
-                  {participant.usuario?.caminho_foto ? (
-                    <Image
-                      source={{ uri: participant.usuario.caminho_foto }}
-                      style={styles.avatarImage}
-                    />
-                  ) : (
-                    <SafeIcon
-                      name="account"
-                      size={28}
-                      color={CustomColors.white}
-                    />
-                  )}
-                </View>
-                <View style={styles.userInfo}>
-                  <Text style={styles.userName}>
-                    {participant.usuario?.nome_completo || participant.usuario?.name || 'N/A'}
-                  </Text>
-                  <Text style={styles.userEmail}>{participant.usuario?.email || 'N/A'}</Text>
-                  {participant.aceito !== null && (
-                    <View style={styles.acceptanceStatusContainer}>
-                      <SafeIcon
-                        name={participant.aceito ? 'check' : 'close'}
-                        size={14}
-                        color={participant.aceito ? CustomColors.successGreen : CustomColors.vividRed}
-                      />
-                      <Text style={[styles.acceptanceStatus, { color: participant.aceito ? CustomColors.successGreen : CustomColors.vividRed }]}>
-                        {participant.aceito ? ' Aceito' : ' Rejeitado'}
-                      </Text>
+            {contract.participantes
+              .filter((p: any) => {
+                const pid = p.usuario_id ?? p.usuario?.id;
+                const criadorId = contract.contratante_id ?? contract.contratante?.id;
+                return pid && Number(pid) !== Number(criadorId);
+              })
+              .map((participant: any, index: number) => {
+                const participanteId = participant.usuario_id ?? participant.usuario?.id;
+                const criadorId = contract.contratante_id ?? contract.contratante?.id;
+                const podeRemover = isCreator && isPending && participanteId && Number(participanteId) !== Number(criadorId);
+                return (
+                  <View key={participanteId || index} style={[styles.userCard, styles.participantRow]}>
+                    <View style={styles.avatar}>
+                      {participant.usuario?.caminho_foto ? (
+                        <Image
+                          source={{ uri: participant.usuario.caminho_foto }}
+                          style={styles.avatarImage}
+                        />
+                      ) : (
+                        <SafeIcon
+                          name="account"
+                          size={28}
+                          color={CustomColors.white}
+                        />
+                      )}
                     </View>
-                  )}
-                </View>
-              </View>
-            ))}
+                    <View style={[styles.userInfo, styles.participantInfo]}>
+                      <Text style={styles.userName}>
+                        {participant.usuario?.nome_completo || participant.usuario?.name || 'N/A'}
+                      </Text>
+                      <Text style={styles.userEmail}>{participant.usuario?.email || 'N/A'}</Text>
+                      {participant.aceito !== null && (
+                        <View style={styles.acceptanceStatusContainer}>
+                          <SafeIcon
+                            name={participant.aceito ? 'check' : 'close'}
+                            size={14}
+                            color={participant.aceito ? CustomColors.successGreen : CustomColors.vividRed}
+                          />
+                          <Text style={[styles.acceptanceStatus, { color: participant.aceito ? CustomColors.successGreen : CustomColors.vividRed }]}>
+                            {participant.aceito ? ' Aceito' : ' Rejeitado'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    {podeRemover && (
+                      <TouchableOpacity
+                        style={styles.removeParticipantButton}
+                        onPress={() => handleRemoverParticipante(participant)}
+                        disabled={isLoading}
+                      >
+                        <SafeIcon name="account-minus" size={22} color={CustomColors.vividRed} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
           </View>
         )}
 
@@ -496,6 +750,17 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Descrição</Text>
             <Text style={styles.description}>{contract.descricao}</Text>
+          </View>
+        )}
+
+        {/* Alteração contratual de rescisão - manifestação formal do contratante */}
+        {contract.alteracao_rescisao && (
+          <View style={[styles.section, styles.alteracaoSection]}>
+            <Text style={styles.sectionTitle}>Alteração Contratual - Rescisão</Text>
+            <View style={styles.alteracaoBox}>
+              <Text style={styles.alteracaoLabel}>Manifestação de vontade do contratante:</Text>
+              <Text style={styles.alteracaoText}>{contract.alteracao_rescisao.manifestacao}</Text>
+            </View>
           </View>
         )}
 
@@ -626,6 +891,31 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
                           </TouchableOpacity>
                         </View>
                       )}
+
+                    {/* Botão Revogar - aparece após todos assinarem (Ativo/Concluído), em cláusulas que o usuário concordou */}
+                    {isParticipant &&
+                      !isLoadingClauses &&
+                      (String(contract.status || '').trim() === 'Ativo' || String(contract.status || '').trim() === 'Concluído' || String(contract.status || '').trim() === 'Concluido') &&
+                      (userApprovalStatus === true || (userHasSignedContract && userApprovalStatus !== false)) &&
+                      !contract.alteracao_rescisao &&
+                      !isLoading && (
+                        <TouchableOpacity
+                          style={[styles.clauseToggleButton, styles.clauseToggleRevogar]}
+                          onPress={() => handleRevogarClause(clause)}
+                          disabled={updatingClause === clause.id}
+                        >
+                          {updatingClause === clause.id ? (
+                            <ActivityIndicator size="small" color="#B45309" />
+                          ) : (
+                            <>
+                              <SafeIcon name="link-off" size={18} color="#B45309" />
+                              <Text style={[styles.clauseToggleButtonText, { color: '#B45309' }]}>
+                                Revogar
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      )}
                     
                     {/* Indicador de desacordo */}
                     {inDisagreement && (
@@ -667,8 +957,8 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
           </View>
         )}
 
-        {/* Botão de Assinar - só aparece se todas as cláusulas foram aprovadas */}
-        {isPending && isParticipant && contract.pode_assinar && (
+        {/* Botão de Assinar - só aparece se todas as cláusulas foram aprovadas e prazo não expirou */}
+        {isPending && isParticipant && contract.pode_assinar && !isSigningExpired && (
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.actionButton, styles.acceptButton]}
@@ -685,33 +975,63 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
         )}
 
         {/* Mensagem informativa se não pode assinar ainda */}
-        {isPending && isParticipant && !contract.pode_assinar && (
+        {isPending && isParticipant && (!contract.pode_assinar || isSigningExpired) && (
           <View style={styles.infoBox}>
             <SafeIcon name="information" size={20} color={CustomColors.pendingYellow} />
             <Text style={styles.infoText}>
-              {contract.clausulas_em_desacordo && contract.clausulas_em_desacordo.length > 0
-                ? `Há ${contract.clausulas_em_desacordo.length} cláusula(s) em desacordo. Todos devem concordar ou discordar de cada cláusula para assinar o contrato.`
-                : 'Todas as cláusulas devem estar coincidentes (todos devem aprovar ou todos devem rejeitar cada cláusula) antes de assinar o contrato.'}
+              {isSigningExpired
+                ? 'O prazo para assinatura do contrato expirou. Não é mais possível assinar.'
+                : contract.clausulas_em_desacordo && contract.clausulas_em_desacordo.length > 0
+                  ? `Há ${contract.clausulas_em_desacordo.length} cláusula(s) em desacordo. Todos devem concordar ou discordar de cada cláusula para assinar o contrato.`
+                  : 'Todas as cláusulas devem estar coincidentes (todos devem aprovar ou todos devem rejeitar cada cláusula) antes de assinar o contrato.'}
             </Text>
           </View>
         )}
 
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.deleteButton]}
-            onPress={handleDeleteContract}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator color={CustomColors.white} />
-            ) : (
-              <>
-                <SafeIcon name="trash" size={18} color={CustomColors.white} />
-                <Text style={styles.actionButtonText}>Excluir Contrato</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+        {/* Só o criador vê este botão - participantes (Amanda, Nana, etc.) não veem */}
+        {isCreator && (contract.status === 'Pendente' || contract.status === 'Expirado') && (
+          <View style={styles.actions}>
+            <Text style={styles.creatorHint}>
+              Como criador, você pode cancelar o contrato ou removê-lo da sua lista.
+            </Text>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={handleDeleteContract}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={CustomColors.white} />
+              ) : (
+                <>
+                  <SafeIcon name="trash" size={18} color={CustomColors.white} />
+                  <Text style={styles.actionButtonText}>
+                    {isPending ? 'Cancelar contrato (para todos)' : 'Remover da minha lista'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Contratante pode rescindir contrato assinado (Ativo/Concluído) - só se ainda não há alteração de rescisão */}
+        {isCreator && (contract.status === 'Ativo' || contract.status === 'Concluído') && !contract.alteracao_rescisao && (
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={handleRescindContract}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={CustomColors.white} />
+              ) : (
+                <>
+                  <SafeIcon name="link-off" size={18} color={CustomColors.white} />
+                  <Text style={styles.actionButtonText}>Rescindir contrato (desistir)</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </CustomScaffold>
   );
@@ -795,6 +1115,18 @@ const styles = StyleSheet.create({
   userInfo: {
     flex: 1,
   },
+  participantRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  participantInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  removeParticipantButton: {
+    padding: 8,
+    marginLeft: 4,
+  },
   userName: {
     fontSize: 16,
     fontWeight: 'bold',
@@ -817,6 +1149,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: CustomColors.black,
     lineHeight: 20,
+  },
+  alteracaoSection: {
+    borderLeftWidth: 4,
+    borderLeftColor: '#B45309',
+  },
+  alteracaoBox: {
+    backgroundColor: 'rgba(180, 83, 9, 0.08)',
+    padding: 12,
+    borderRadius: 8,
+  },
+  alteracaoLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#B45309',
+    marginBottom: 8,
+  },
+  alteracaoText: {
+    fontSize: 14,
+    color: CustomColors.black,
+    lineHeight: 22,
   },
   actions: {
     marginTop: 24,
@@ -966,6 +1318,12 @@ const styles = StyleSheet.create({
     borderColor: CustomColors.successGreen,
     backgroundColor: 'transparent',
   },
+  clauseToggleRevogar: {
+    borderColor: '#B45309',
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+    marginTop: 8,
+  },
   clauseToggleDiscordar: {
     borderColor: CustomColors.vividRed,
     backgroundColor: 'transparent',
@@ -1013,6 +1371,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 24,
     gap: 8,
+  },
+  creatorHint: {
+    fontSize: 12,
+    color: CustomColors.activeGreyed,
+    marginBottom: 8,
+    textAlign: 'center',
   },
   infoText: {
     flex: 1,

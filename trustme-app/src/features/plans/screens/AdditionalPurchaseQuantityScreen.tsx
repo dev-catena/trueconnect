@@ -98,29 +98,31 @@ const AdditionalPurchaseQuantityScreen: React.FC = () => {
 
   // Calcular labels e valores baseado no tipo
   const { typeLabel, typeLabelPlural, headerTitle, descriptionText, unitPrice, maxQuantity } = useMemo(() => {
+    const getLabels = () => {
+      if (type === 'contracts') return { label: 'contratos', labelPlural: 'Contratos', desc: 'contratos' };
+      return { label: 'conexões', labelPlural: 'Conexões', desc: 'conexões' };
+    };
+    const { label, labelPlural, desc } = getLabels();
+
     if (!prices) {
       return {
-        typeLabel: type === 'contracts' ? 'contratos' : 'conexões',
-        typeLabelPlural: type === 'contracts' ? 'Contratos' : 'Conexões',
-        headerTitle: type === 'contracts' ? 'Comprar Contratos Adicionais' : 'Comprar Conexões Adicionais',
-        descriptionText: type === 'contracts' ? 'Quantos contratos adicionais você deseja comprar?' : 'Quantas conexões adicionais você deseja comprar?',
+        typeLabel: label,
+        typeLabelPlural: labelPlural,
+        headerTitle: `Comprar ${labelPlural} Adicionais`,
+        descriptionText: `Quantas ${desc} adicionais você deseja comprar?`,
         unitPrice: 0,
         maxQuantity: 100,
       };
     }
 
-    const label = type === 'contracts' ? 'contratos' : 'conexões';
-    const labelPlural = type === 'contracts' ? 'Contratos' : 'Conexões';
-    const title = `Comprar ${labelPlural} Adicionais`;
-    const desc = `Quantos ${label} adicionais você deseja comprar?`;
     const price = type === 'contracts' ? prices.contracts.unit_price : prices.connections.unit_price;
     const max = type === 'contracts' ? prices.contracts.max_quantity : prices.connections.max_quantity;
 
     return {
       typeLabel: label,
       typeLabelPlural: labelPlural,
-      headerTitle: title,
-      descriptionText: desc,
+      headerTitle: `Comprar ${labelPlural} Adicionais`,
+      descriptionText: `Quantas ${desc} adicionais você deseja comprar?`,
       unitPrice: price,
       maxQuantity: max,
     };

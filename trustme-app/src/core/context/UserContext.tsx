@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User, Contract, Connection } from '../../types';
 import ApiProvider from '../api/ApiProvider';
@@ -12,6 +13,7 @@ interface UserContextType {
   setUser: (user: User | null) => void;
   setContracts: (contracts: Contract[]) => void;
   setConnections: (connections: Connection[]) => void;
+  removeConnection: (connectionId: number) => void;
   login: (cpf: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUserData: () => Promise<void>;
@@ -55,7 +57,10 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const pollingCleanupRef = useRef<(() => void) | null>(null);
-
+  const userRef = useRef<User | null>(null);
+  const lastRefreshAtRef = useRef<number>(0);
+  const REFRESH_COOLDOWN_MS = 5000; // Evitar loop: mínimo 5s entre refreshUserData
+  userRef.current = user;
 
   useEffect(() => {
     let isMounted = true;
@@ -96,7 +101,8 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
                 }
                 // Garantir que o caminho_foto tenha a URL completa se existir
                 if (updatedUserData.caminho_foto && !updatedUserData.caminho_foto.startsWith('http')) {
-                  const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
+                  const { BACKEND_BASE_URL } = require('../../utils/constants');
+                  const BASE_URL = BACKEND_BASE_URL;
                   updatedUserData.caminho_foto = BASE_URL + (updatedUserData.caminho_foto.startsWith('/') ? updatedUserData.caminho_foto : '/' + updatedUserData.caminho_foto);
                 }
                 await AsyncStorage.setItem('user', JSON.stringify(updatedUserData));
@@ -108,80 +114,6 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
           }
           // Carregar dados do usuário (contratos, conexões, selos)
           await initializeUserData(userData);
-          
-          // Configurar WebSocket/polling para atualizações em tempo real
-          if (userData.id && isMounted) {
-            // Função para atualizar dados quando eventos ocorrem
-            // Usar uma referência estável para evitar problemas de closure
-            let currentUserData = userData;
-            const handleConnectionUpdate = async () => {
-              if (isMounted && currentUserData?.id) {
-                if (__DEV__) {
-                  console.log('📡 Atualizando lista de conexões...');
-                }
-                // Atualizar apenas as conexões, não todos os dados
-                try {
-                  const apiWithToken = new ApiProvider(true);
-                  const connectionsRes = await apiWithToken.get('usuario/conexoes');
-                  
-                  if (connectionsRes && typeof connectionsRes === 'object') {
-                    const result = connectionsRes.result || connectionsRes;
-                    if (result) {
-                      const ativas = Array.isArray(result.ativas) ? result.ativas : [];
-                      const pendentes = Array.isArray(result.pendentes) ? result.pendentes : [];
-                      const aguardando = Array.isArray(result.aguardando_resposta) ? result.aguardando_resposta : [];
-                      const allConnections = ativas.concat(pendentes).concat(aguardando);
-                      setConnections(allConnections);
-                      if (__DEV__) {
-                        console.log('✅ Conexões atualizadas:', allConnections.length);
-                      }
-                    }
-                  }
-                } catch (error: any) {
-                  // Verificar se é erro de rede - não tentar fazer update completo se for
-                  const isNetworkError = error.message === 'Network Error' || 
-                                        error.code === 'NETWORK_ERROR' ||
-                                        !error.response;
-                  
-                  if (isNetworkError) {
-                    if (__DEV__) {
-                      console.warn('⚠️ Erro de rede ao atualizar conexões. Pulando atualização completa.');
-                    }
-                    // Não tentar fazer update completo em caso de erro de rede
-                    return;
-                  }
-                  
-                  console.error('Erro ao atualizar conexões:', error);
-                  // Em caso de outros erros, fazer update completo
-                  await initializeUserData(currentUserData);
-                }
-              }
-            };
-            
-            // Registrar listeners para eventos de conexão
-            const unsubscribeCriada = webSocketService.on('conexao.criada', handleConnectionUpdate);
-            const unsubscribeAtualizada = webSocketService.on('conexao.atualizada', handleConnectionUpdate);
-            const unsubscribeRemovida = webSocketService.on('conexao.removida', handleConnectionUpdate);
-            
-            // Iniciar polling inteligente (verifica mudanças a cada 8 segundos)
-            pollingCleanupRef.current = webSocketService.startPolling(
-              userData.id,
-              handleConnectionUpdate,
-              8000 // 8 segundos - verifica mudanças antes de atualizar
-            );
-            
-            // Cleanup ao desmontar
-            return () => {
-              unsubscribeCriada();
-              unsubscribeAtualizada();
-              unsubscribeRemovida();
-              if (pollingCleanupRef.current) {
-                pollingCleanupRef.current();
-                pollingCleanupRef.current = null;
-              }
-              webSocketService.disconnect();
-            };
-          }
         }
       } catch (error) {
         console.error('Error loading stored user:', error);
@@ -203,6 +135,79 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       webSocketService.disconnect();
     };
   }, []);
+
+  // WebSocket: conecta quando há usuário logado (tanto ao abrir app quanto após login)
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+
+    const handleContratoUpdate = async () => {
+      const currentUser = userRef.current;
+      if (currentUser?.id) {
+        if (__DEV__) {
+          console.log('📡 Contrato criado/atualizado via Reverb - recarregando contratos...');
+        }
+        await initializeUserData(currentUser);
+      }
+    };
+
+    const handleConnectionUpdate = async (eventData?: { id?: number }) => {
+      const currentUser = userRef.current;
+      if (currentUser?.id) {
+        if (eventData?.id) {
+          setConnections((prev) => prev.filter((c) => c.id !== eventData!.id));
+        }
+        if (__DEV__) {
+          console.log('📡 Atualizando lista de conexões...');
+        }
+        try {
+          const apiWithToken = new ApiProvider(true);
+          const connectionsRes = await apiWithToken.get('usuario/conexoes');
+          if (connectionsRes && typeof connectionsRes === 'object') {
+            const result = connectionsRes.result || connectionsRes;
+            if (result) {
+              const ativas = Array.isArray(result.ativas) ? result.ativas : [];
+              const pendentes = Array.isArray(result.pendentes) ? result.pendentes : [];
+              const aguardando = Array.isArray(result.aguardando_resposta) ? result.aguardando_resposta : [];
+              setConnections(ativas.concat(pendentes).concat(aguardando));
+            }
+          }
+        } catch (error: any) {
+          const isNetworkError = error.message === 'Network Error' || error.code === 'NETWORK_ERROR' || !error.response;
+          const isThrottle = error.response?.status === 429 || error.response?.data?.mensagem === 'Too Many Attempts.';
+          if (!isNetworkError && !isThrottle && userRef.current?.id) {
+            await initializeUserData(userRef.current);
+          }
+        }
+      }
+    };
+
+    const unsubscribeCriada = webSocketService.on('conexao.criada', handleConnectionUpdate);
+    const unsubscribeAtualizada = webSocketService.on('conexao.atualizada', handleConnectionUpdate);
+    const unsubscribeRemovida = webSocketService.on('conexao.removida', handleConnectionUpdate);
+    const unsubscribeContrato = webSocketService.on('contrato.atualizado', handleContratoUpdate);
+
+    const handleDestinatarioSemConexoes = (data: { solicitante?: { nome_completo?: string }; message?: string }) => {
+      const msg = data?.message || `${data?.solicitante?.nome_completo || 'Alguém'} quer se conectar com você. Adquira mais conexões no seu plano para aceitar.`;
+      Alert.alert('Conexão aguardando', msg, [{ text: 'OK' }]);
+    };
+    const unsubscribeDestinatarioSemConexoes = webSocketService.on('conexao.destinatario_sem_conexoes', handleDestinatarioSemConexoes);
+
+    pollingCleanupRef.current = webSocketService.startPolling(userId, handleConnectionUpdate, 4000);
+
+    return () => {
+      unsubscribeCriada();
+      unsubscribeAtualizada();
+      unsubscribeRemovida();
+      unsubscribeContrato();
+      unsubscribeDestinatarioSemConexoes();
+      if (pollingCleanupRef.current) {
+        pollingCleanupRef.current();
+        pollingCleanupRef.current = null;
+      }
+      webSocketService.disconnect();
+    };
+  }, [user?.id]);
 
   const initializeUserData = async (userData: User) => {
     if (!userData?.id) {
@@ -238,16 +243,22 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
         seals: sealsRes?.status,
       });
 
-      // Processar contratos
+      // Processar contratos - contrato/listar retorna { result: [...] }
       let contractsList: Contract[] = [];
       if (contractsRes?.status === 'fulfilled' && contractsRes.value) {
         const data = contractsRes.value;
-        if (Array.isArray(data)) {
-          contractsList = data;
-        } else if (data?.result && Array.isArray(data.result)) {
-          contractsList = data.result;
-        } else if (data?.data && Array.isArray(data.data)) {
-          contractsList = data.data;
+        const raw = data?.result ?? data?.data ?? data;
+        if (Array.isArray(raw)) {
+          contractsList = raw;
+        } else if (raw && typeof raw === 'object' && (raw.contratos_como_contratante || raw.contratos_como_participante)) {
+          const a = Array.isArray(raw.contratos_como_contratante) ? raw.contratos_como_contratante : [];
+          const b = Array.isArray(raw.contratos_como_participante) ? raw.contratos_como_participante : [];
+          const ids = new Set<number>();
+          contractsList = [...a, ...b].filter((c: Contract) => {
+            if (ids.has(c.id)) return false;
+            ids.add(c.id);
+            return true;
+          });
         }
       } else {
         console.warn('⚠️ Erro ao carregar contratos:', contractsRes?.status);
@@ -283,12 +294,12 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       }
       setConnections(allConnections);
 
-      // Processar selos
-      if (sealsRes?.status === 'fulfilled' && sealsRes.value?.result?.ativos) {
-        const ativos = sealsRes.value.result.ativos;
-        if (Array.isArray(ativos) && ativos.length > 0) {
-          setUser({ ...userData, sealsObtained: ativos });
-        }
+      // Processar selos (ativos + pendentes para exibir na Home)
+      if (sealsRes?.status === 'fulfilled' && sealsRes.value?.result) {
+        const result = sealsRes.value.result;
+        const ativos = Array.isArray(result.ativos) ? result.ativos : [];
+        const pendentes = Array.isArray(result.pendentes) ? result.pendentes : [];
+        setUser({ ...userData, sealsObtained: ativos, sealsPendentes: pendentes });
       } else {
         console.warn('⚠️ Erro ao carregar selos:', sealsRes?.status);
       }
@@ -410,9 +421,13 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
   const refreshUserData = async () => {
     if (!user?.id) return;
     
-    // Prevenir múltiplas chamadas simultâneas
     if (isRefreshing) {
-      console.log('⚠️ refreshUserData já está em execução, ignorando chamada');
+      if (__DEV__) console.log('⚠️ refreshUserData já está em execução, ignorando chamada');
+      return;
+    }
+    const now = Date.now();
+    if (now - lastRefreshAtRef.current < REFRESH_COOLDOWN_MS) {
+      if (__DEV__) console.log('⚠️ refreshUserData em cooldown (evitar loop), ignorando');
       return;
     }
     
@@ -425,8 +440,13 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
       console.error('❌ Error refreshing user data:', error);
       // Não propagar o erro para evitar loops
     } finally {
+      lastRefreshAtRef.current = Date.now();
       setIsRefreshing(false);
     }
+  };
+
+  const removeConnection = (connectionId: number) => {
+    setConnections((prev) => prev.filter((c) => c.id !== connectionId));
   };
 
   return (
@@ -439,6 +459,7 @@ export const UserProvider: React.FC<UserProviderProps> = ({ children }) => {
         setUser,
         setContracts,
         setConnections,
+        removeConnection,
         login,
         logout,
         refreshUserData,

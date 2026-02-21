@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\SealRequest;
+use App\Models\ContratoUsuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -63,7 +65,7 @@ class UserController extends Controller
             'name' => $request->name,
             'nome_completo' => $request->name, // Garante compatibilidade com app
             'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'password' => $request->password, // Cast 'hashed' no model aplica Hash::make automaticamente
             'role' => $request->role ?? 'user',
         ]);
 
@@ -109,7 +111,8 @@ class UserController extends Controller
         }
         
         if ($request->password) {
-            $data['password'] = Hash::make($request->password);
+            // Passar texto plano - o cast 'hashed' do model User aplica Hash::make automaticamente
+            $data['password'] = $request->password;
         }
 
         $user->update($data);
@@ -195,7 +198,8 @@ class UserController extends Controller
         }
         
         if ($request->password) {
-            $data['password'] = Hash::make($request->password);
+            // Passar texto plano - o cast 'hashed' do model User aplica Hash::make automaticamente
+            $data['password'] = $request->password;
         }
 
         $user->update($data);
@@ -397,12 +401,21 @@ class UserController extends Controller
             $this->verificarExpiracaoContrato($contrato);
         }
 
-        $contratosContratanteTransformado = $contratosContratante->map(function ($contrato) {
+        $contratosContratanteTransformado = $contratosContratante->map(function ($contrato) use ($usuario) {
+            $statusExibicao = $contrato->status;
+            $outraParteExcluiu = ContratoUsuario::withTrashed()
+                ->where('contrato_id', $contrato->id)
+                ->where('usuario_id', '!=', $usuario->id)
+                ->whereNotNull('deleted_at')
+                ->exists();
+            if ($outraParteExcluiu) {
+                $statusExibicao = 'Excluída pela outra parte';
+            }
             return [
                 'id'          => $contrato->id,
                 'codigo'      => $contrato->codigo,
                 'descricao'   => $contrato->descricao,
-                'status'      => $contrato->status,
+                'status'      => $statusExibicao,
                 'duracao'     => $contrato->duracao,
                 'dt_inicio'   => $contrato->dt_inicio,
                 'dt_fim'      => $contrato->dt_fim,
@@ -439,12 +452,21 @@ class UserController extends Controller
             $this->verificarExpiracaoContrato($contrato);
         }
 
-        $contratosParticipanteTransformado = $contratosParticipante->map(function ($contrato) {
+        $contratosParticipanteTransformado = $contratosParticipante->map(function ($contrato) use ($usuario) {
+            $statusExibicao = $contrato->status;
+            $outraParteExcluiu = ContratoUsuario::withTrashed()
+                ->where('contrato_id', $contrato->id)
+                ->where('usuario_id', '!=', $usuario->id)
+                ->whereNotNull('deleted_at')
+                ->exists();
+            if ($outraParteExcluiu) {
+                $statusExibicao = 'Excluída pela outra parte';
+            }
             return [
                 'id'          => $contrato->id,
                 'codigo'      => $contrato->codigo,
                 'descricao'   => $contrato->descricao,
-                'status'      => $contrato->status,
+                'status'      => $statusExibicao,
                 'duracao'     => $contrato->duracao,
                 'dt_inicio'   => $contrato->dt_inicio,
                 'dt_fim'      => $contrato->dt_fim,
@@ -504,23 +526,36 @@ class UserController extends Controller
                 'selosExpirados.selo',
                 'selosCancelados.selo',
                 'userSeals.sealType', // Carregar UserSeal (novo modelo)
+                'sealRequests.sealType', // Solicitações ainda não avaliadas
             ]);
 
-            $formatar = function($selo) {
+            $formatar = function($selo) use ($usuario) {
                 if (!$selo || !$selo->selo) {
                     return null;
+                }
+                $seloObj = $selo->selo;
+                $rejectionReason = null;
+                $sealType = \App\Models\SealType::where('code', $seloObj->codigo ?? '')->first();
+                if ($sealType) {
+                    $rejectedRequest = SealRequest::where('user_id', $usuario->id)
+                        ->where('seal_type_id', $sealType->id)
+                        ->where('status', 'rejected')
+                        ->orderBy('reviewed_at', 'desc')
+                        ->first();
+                    $rejectionReason = $rejectedRequest?->rejection_reason;
                 }
                 return [
                     'id'         => $selo->id ?? null,
                     'verificado' => $selo->verificado ?? false,
                     'expira_em'  => $selo->expira_em ?? null,
                     'obtido_em'  => $selo->obtido_em ?? null,
+                    'rejection_reason' => $rejectionReason,
                     'selo'       => [
-                        'id'         => $selo->selo->id ?? null,
-                        'codigo'     => $selo->selo->codigo ?? null,
-                        'descricao'  => $selo->selo->descricao ?? null,
-                        'disponivel' => $selo->selo->disponivel ?? null,
-                        'validade'   => $selo->selo->validade ?? null,
+                        'id'         => $seloObj->id ?? null,
+                        'codigo'     => $seloObj->codigo ?? null,
+                        'descricao'  => $seloObj->descricao ?? null,
+                        'disponivel' => $seloObj->disponivel ?? null,
+                        'validade'   => $seloObj->validade ?? null,
                     ]
                 ];
             };
@@ -548,12 +583,25 @@ class UserController extends Controller
             
             if ($selo) {
                 \Log::debug("Mapeando UserSeal {$userSeal->id} (status: {$userSeal->status}) para Selo {$selo->id} (código: {$selo->codigo})");
+                $rejectionReason = null;
+                if ($userSeal->status === 'rejected') {
+                    $rejectionReason = $userSeal->rejection_reason;
+                    if (empty($rejectionReason)) {
+                        $rejectedRequest = SealRequest::where('user_id', $usuario->id)
+                            ->where('seal_type_id', $userSeal->seal_type_id)
+                            ->where('status', 'rejected')
+                            ->orderBy('reviewed_at', 'desc')
+                            ->first();
+                        $rejectionReason = $rejectedRequest?->rejection_reason;
+                    }
+                }
                 $formattedSeal = [
                     'id' => $userSeal->id,
                     'selo_id' => $selo->id,
                     'verificado' => $userSeal->status === 'approved',
                     'expira_em' => $userSeal->expires_at ? $userSeal->expires_at->toIso8601String() : null,
                     'obtido_em' => $userSeal->approved_at ? $userSeal->approved_at->toIso8601String() : null,
+                    'rejection_reason' => $rejectionReason,
                     'selo' => [
                         'id' => $selo->id,
                         'codigo' => $selo->codigo,
@@ -563,10 +611,16 @@ class UserController extends Controller
                     ]
                 ];
 
-                // Classificar por status
+                // Classificar por status; approved com expires_at vencido vai para expirados
+                $estaExpirado = $userSeal->expires_at && $userSeal->expires_at->isPast();
+
                 switch ($userSeal->status) {
                     case 'approved':
-                        $userSealsAtivos[] = $formattedSeal;
+                        if ($estaExpirado) {
+                            $userSealsExpirados[] = $formattedSeal;
+                        } else {
+                            $userSealsAtivos[] = $formattedSeal;
+                        }
                         break;
                     case 'pending':
                     case 'under_review':
@@ -582,26 +636,110 @@ class UserController extends Controller
             }
         }
 
+        // Incluir SealRequests pendentes/under_review que ainda não têm UserSeal correspondente
+        $sealTypeIdsComUserSealPendente = array_column($userSealsPendentes, 'selo_id');
+        foreach ($usuario->sealRequests ?? [] as $sealRequest) {
+            if (!in_array($sealRequest->status, ['pending', 'under_review'])) {
+                continue;
+            }
+            if (!$sealRequest->sealType) {
+                continue;
+            }
+            $sealTypeCode = $sealRequest->sealType->code ?? null;
+            if (!$sealTypeCode) {
+                continue;
+            }
+            $selo = \App\Models\Selo::where('codigo', $sealTypeCode)->first();
+            if (!$selo) {
+                continue;
+            }
+            // Evitar duplicata se já existe UserSeal pendente para este selo
+            if (in_array($selo->id, $sealTypeIdsComUserSealPendente)) {
+                continue;
+            }
+            $userSealsPendentes[] = [
+                'id' => 'sr-' . $sealRequest->id,
+                'selo_id' => $selo->id,
+                'verificado' => false,
+                'expira_em' => null,
+                'obtido_em' => null,
+                'selo' => [
+                    'id' => $selo->id,
+                    'codigo' => $selo->codigo,
+                    'descricao' => $selo->descricao ?? null,
+                    'disponivel' => $selo->disponivel ?? null,
+                    'validade' => $selo->validade ?? null,
+                ]
+            ];
+            $sealTypeIdsComUserSealPendente[] = $selo->id;
+        }
+
+        // Incluir SealRequests rejeitados que não têm UserSeal correspondente (ex: rejeitado antes do pagamento)
+        $sealTypeIdsComUserSealRejeitado = array_column($userSealsRejeitados, 'selo_id');
+        foreach ($usuario->sealRequests ?? [] as $sealRequest) {
+            if ($sealRequest->status !== 'rejected') {
+                continue;
+            }
+            if (!$sealRequest->sealType) {
+                continue;
+            }
+            $sealTypeCode = $sealRequest->sealType->code ?? null;
+            if (!$sealTypeCode) {
+                continue;
+            }
+            $selo = \App\Models\Selo::where('codigo', $sealTypeCode)->first();
+            if (!$selo) {
+                continue;
+            }
+            if (in_array($selo->id, $sealTypeIdsComUserSealRejeitado)) {
+                continue;
+            }
+            $userSealsRejeitados[] = [
+                'id' => 'sr-' . $sealRequest->id,
+                'selo_id' => $selo->id,
+                'verificado' => false,
+                'expira_em' => null,
+                'obtido_em' => null,
+                'rejection_reason' => $sealRequest->rejection_reason ?? null,
+                'selo' => [
+                    'id' => $selo->id,
+                    'codigo' => $selo->codigo,
+                    'descricao' => $selo->descricao ?? null,
+                    'disponivel' => $selo->disponivel ?? null,
+                    'validade' => $selo->validade ?? null,
+                ]
+            ];
+            $sealTypeIdsComUserSealRejeitado[] = $selo->id;
+        }
+
             // Combinar selos antigos (UsuarioSelo) com novos (UserSeal)
+            $ativos = array_merge(
+                $usuario->selosAtivos->map($formatar)->filter()->toArray(),
+                $userSealsAtivos
+            );
+            $pendentes = array_merge(
+                $usuario->selosPendentes->map($formatar)->filter()->toArray(),
+                $userSealsPendentes
+            );
+            $expirados = array_merge(
+                $usuario->selosExpirados->map($formatar)->filter()->toArray(),
+                $userSealsExpirados
+            );
+            $cancelados = array_merge(
+                $usuario->selosCancelados->map($formatar)->filter()->toArray(),
+                $userSealsRejeitados
+            );
+
+            // Outros usuários veem apenas concedidos e pendentes (não cancelados nem expirados)
+            $estaVisualizandoOutroUsuario = $id != request()->user()->id;
+
             $result = [
-                'usuario_id'   => $usuario->id,
+                'usuario_id'    => $usuario->id,
                 'nome_completo' => $usuario->nome_completo ?? null,
-                'ativos'       => array_merge(
-                    $usuario->selosAtivos->map($formatar)->filter()->toArray(), 
-                    $userSealsAtivos
-                ),
-                'pendentes'    => array_merge(
-                    $usuario->selosPendentes->map($formatar)->filter()->toArray(), 
-                    $userSealsPendentes
-                ),
-                'expirados'    => array_merge(
-                    $usuario->selosExpirados->map($formatar)->filter()->toArray(), 
-                    $userSealsExpirados
-                ),
-                'cancelados'   => array_merge(
-                    $usuario->selosCancelados->map($formatar)->filter()->toArray(), 
-                    $userSealsRejeitados
-                ),
+                'ativos'        => $ativos,
+                'pendentes'     => $pendentes,
+                'expirados'     => $estaVisualizandoOutroUsuario ? [] : $expirados,
+                'cancelados'    => $estaVisualizandoOutroUsuario ? [] : $cancelados,
             ];
 
             return $this->ok('Selos do usuário recuperados com sucesso.', $result);

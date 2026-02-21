@@ -23,7 +23,17 @@ export const formatTimeAgo = (dateString: string): string => {
   }
 };
 
-
-
-
+/** Formata duração em horas para exibição (ex: 24 -> "24 horas", 48 -> "2 dias") */
+export const formatDuracao = (duracaoHoras: number): string => {
+  if (!duracaoHoras || duracaoHoras < 1) return '';
+  if (duracaoHoras >= 24 * 30) {
+    const meses = Math.round(duracaoHoras / (24 * 30));
+    return `${meses} ${meses === 1 ? 'mês' : 'meses'}`;
+  }
+  if (duracaoHoras >= 24) {
+    const dias = Math.round(duracaoHoras / 24);
+    return `${dias} ${dias === 1 ? 'dia' : 'dias'}`;
+  }
+  return `${duracaoHoras} ${duracaoHoras === 1 ? 'hora' : 'horas'}`;
+};
 

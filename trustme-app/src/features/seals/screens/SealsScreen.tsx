@@ -17,7 +17,7 @@ interface Selo {
   nome: string;
   descricao?: string;
   validade?: number;
-  documentos_evidencias?: string[];
+  documentos_evidencias?: (string | { nome: string; obrigatorio?: boolean })[];
   descricao_como_obter?: string;
   custo_obtencao?: number;
   ativo: boolean;
@@ -138,7 +138,7 @@ const SealsScreen: React.FC = () => {
           })));
         }
         
-        console.log('Selos do usuário carregados:', seals);
+        if (__DEV__) console.log('Selos do usuário carregados:', seals.length, 'selos');
         setUserSeals(seals);
       }
     } catch (error: any) {
@@ -169,10 +169,8 @@ const SealsScreen: React.FC = () => {
       });
     }
     
-    if (userSeal) {
+    if (__DEV__ && userSeal) {
       console.log(`Status encontrado para selo ${seloId} (${selo.codigo}):`, userSeal.status);
-    } else {
-      console.log(`Nenhum status encontrado para selo ${seloId} (${selo.codigo})`);
     }
     
     return userSeal ? userSeal.status : null;
@@ -335,9 +333,14 @@ const SealsScreen: React.FC = () => {
                 {selo.documentos_evidencias && selo.documentos_evidencias.length > 0 && (
                   <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Documentos necessários:</Text>
-                    {selo.documentos_evidencias.map((doc, index) => (
-                      <Text key={index} style={styles.documentItem}>• {doc}</Text>
-                    ))}
+                    {selo.documentos_evidencias.map((doc, index) => {
+                      const label = typeof doc === 'string' 
+                        ? doc 
+                        : (doc && typeof doc === 'object' && 'nome' in doc ? doc.nome : String(doc));
+                      return (
+                        <Text key={index} style={styles.documentItem}>• {label}</Text>
+                      );
+                    })}
                   </View>
                 )}
 

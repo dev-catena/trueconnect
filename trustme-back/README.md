@@ -59,8 +59,8 @@ O backend do Trust-me foi migrado com sucesso de NextJS/PostgreSQL para Laravel/
 ## 🔧 Configuração
 
 ### Servidor rodando em:
-- **URL:** http://localhost:8001
-- **API Base:** http://localhost:8001/api
+- **URL:** http://localhost:8000
+- **API Base:** http://localhost:8000/api
 
 ### Credenciais de teste:
 - **Admin:** admin@trustme.com / admin123
@@ -81,7 +81,7 @@ Exemplo de variáveis relevantes:
 APP_NAME=Trust-me
 APP_ENV=local
 APP_DEBUG=true
-APP_URL=http://localhost:8001
+APP_URL=http://localhost:8000
 
 DB_CONNECTION=mysql
 DB_HOST=127.0.0.1
@@ -97,7 +97,7 @@ SESSION_DOMAIN=localhost
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 # Em desenvolvimento, aponte o redirect para a rota SPA (não /api)
-GOOGLE_REDIRECT_URI=http://localhost:8001/auth/google/callback
+GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
 
 MERCADOPAGO_ACCESS_TOKEN=APP_USR-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 MERCADOPAGO_WEBHOOK_SUCCESS=https://consentir.catenasystem.com.br/api/payment/success
@@ -138,7 +138,7 @@ GOOGLE_REDIRECT_URI=https://consentir.catenasystem.com.br/auth/google/callback
 
 ```javascript
 // Configuração base
-const API_BASE = 'http://localhost:8001/api';
+const API_BASE = 'http://localhost:8000/api';
 
 // Login
 const login = async (email, password) => {

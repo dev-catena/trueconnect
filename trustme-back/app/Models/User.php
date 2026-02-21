@@ -219,9 +219,14 @@ class User extends Authenticatable
         return $this->hasMany(Subscription::class);
     }
 
+    /**
+     * Assinatura ativa preferencial: Infinit (plan_id 2) sobre Core (plan_id 1).
+     */
     public function activeSubscription()
     {
-        return $this->hasOne(Subscription::class)->where('status', 'active');
+        return $this->hasOne(Subscription::class)
+            ->where('status', 'active')
+            ->orderByDesc('plan_id'); // Infinit (2) antes de Core (1)
     }
 
     public function additionalPurchases()
@@ -231,15 +236,20 @@ class User extends Authenticatable
 
     /**
      * Retorna o limite total de contratos (plano + compras adicionais)
+     * null = ilimitado (ex: plano Infinit)
+     * 0 = sem plano ativo que permita contratos
      */
     public function getTotalContractsLimit()
     {
         $activeSubscription = $this->activeSubscription;
-        $planLimit = $activeSubscription?->plan?->contracts_limit ?? 0;
-        
-        // Se o plano é ilimitado, retorna null
+        if (!$activeSubscription || !$activeSubscription->plan) {
+            $additionalContracts = AdditionalPurchase::getTotalAdditionalContracts($this->id);
+            return $additionalContracts > 0 ? $additionalContracts : 0;
+        }
+
+        $planLimit = $activeSubscription->plan->contracts_limit; // null = ilimitado no Infinit
         if ($planLimit === null) {
-            return null;
+            return null; // Ilimitado
         }
 
         $additionalContracts = AdditionalPurchase::getTotalAdditionalContracts($this->id);
@@ -248,16 +258,89 @@ class User extends Authenticatable
 
     /**
      * Retorna o limite total de conexões (plano + compras adicionais)
-     * Por enquanto, conexões são ilimitadas, mas podemos adicionar limite no futuro
+     * null = ilimitado
+     * Sem assinatura ativa e sem compras de conexões = 0 (nenhuma conexão permitida)
      */
     public function getTotalConnectionsLimit()
     {
-        // Por enquanto, conexões são ilimitadas
-        return null;
+        $activeSubscription = $this->activeSubscription;
+        $plan = $activeSubscription?->plan;
+        $planLimit = $plan?->connections_limit;
+
+        $additionalConnections = \App\Models\AdditionalPurchase::getTotalAdditionalConnections($this->id);
+
+        // Sem assinatura ativa: só compras adicionais
+        if (!$activeSubscription) {
+            return $additionalConnections > 0 ? $additionalConnections : 0;
+        }
+        // Plano ilimitado (connections_limit = null): sem restrição
+        if ($planLimit === null) {
+            return null;
+        }
+
+        return $planLimit + $additionalConnections;
     }
 
     /**
-     * Verifica se o usuário pode criar mais contratos
+     * Conta conexões ativas (aceitas) do usuário
+     */
+    public function getActiveConnectionsCount(): int
+    {
+        return \App\Models\UsuarioConexao::where(function($query) {
+            $query->where('solicitante_id', $this->id)
+                  ->orWhere('destinatario_id', $this->id);
+        })
+        ->where('aceito', true)
+        ->whereNull('deleted_at')
+        ->count();
+    }
+
+    /**
+     * Conta total de conexões (pendentes + ativas) do usuário.
+     * Usado para o limite único: cada conexão (pendente ou ativa) consome 1 slot.
+     */
+    public function getConnectionsCount(): int
+    {
+        return \App\Models\UsuarioConexao::where(function($query) {
+            $query->where('solicitante_id', $this->id)
+                  ->orWhere('destinatario_id', $this->id);
+        })
+        ->whereNull('deleted_at')
+        ->count();
+    }
+
+    /**
+     * Verifica se o usuário tem pelo menos 1 slot de conexão disponível.
+     */
+    public function hasConnectionSlotAvailable(): bool
+    {
+        $limit = $this->getTotalConnectionsLimit();
+        if ($limit === null) {
+            return true;
+        }
+        return $this->getConnectionsCount() < $limit;
+    }
+
+    /**
+     * Conta contratos assinados (consumindo cota), EXCLUINDO apenas expirados.
+     * Saldo = franquia do plano + compras adicionais - contratos assinados
+     *
+     * REGRA: Contratos "excluídos" (removidos da lista do usuário) CONTINUAM abatendo no saldo.
+     * Uma vez criado, o contrato consumiu uma cota - remover da vista não libera a cota.
+     * Usa withTrashed() para incluir Contratos soft-deleted (se algum dia forem deletados).
+     */
+    public function getContratosAssinadosCount(): int
+    {
+        return Contrato::where('contratante_id', $this->id)
+            ->withTrashed()
+            ->whereNot('status', 'Expirado')
+            ->whereDoesntHave('alteracoes', fn ($q) => $q->where('tipo', 'rescindir'))
+            ->count();
+    }
+
+    /**
+     * Verifica se o usuário pode criar mais contratos.
+     * Saldo = franquia + compras adicionais - contratos assinados (excluindo expirados)
      */
     public function canCreateContract()
     {
@@ -268,34 +351,38 @@ class User extends Authenticatable
             return true;
         }
 
-        $currentCount = $this->contratosContratante()
-            ->whereIn('status', ['Ativo', 'Pendente'])
-            ->count();
-
-        return $currentCount < $limit;
+        $contratosAssinados = $this->getContratosAssinadosCount();
+        return $contratosAssinados < $limit;
     }
 
     /**
-     * Verifica se o usuário pode criar mais conexões
+     * Verifica se o usuário pode solicitar nova conexão.
+     * Regra única: limite de conexões (pendentes + ativas) não pode ser excedido.
      */
-    public function canCreateConnection()
+    public function canSendConnectionRequest(): array
     {
         $limit = $this->getTotalConnectionsLimit();
-        
-        // Se ilimitado, sempre pode criar
-        if ($limit === null) {
-            return true;
+        $count = $this->getConnectionsCount();
+
+        if ($limit !== null && $count >= $limit) {
+            return [
+                'can' => false,
+                'block_reason' => 'conexoes',
+                'resource' => 'conexões',
+                'current' => $count,
+                'limit' => $limit,
+            ];
         }
 
-        $currentCount = \App\Models\UsuarioConexao::where(function($query) {
-            $query->where('solicitante_id', $this->id)
-                  ->orWhere('destinatario_id', $this->id);
-        })
-        ->where('aceito', true)
-        ->whereNull('deleted_at')
-        ->count();
+        return ['can' => true, 'block_reason' => null];
+    }
 
-        return $currentCount < $limit;
+    /**
+     * Verifica se o usuário pode aceitar mais conexões (mesmo critério: slots disponíveis).
+     */
+    public function canCreateConnection(bool $onlyAccepted = false): bool
+    {
+        return $this->hasConnectionSlotAvailable();
     }
 
     public function loginHistories()

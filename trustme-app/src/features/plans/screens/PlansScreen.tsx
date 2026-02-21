@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../../../types/navigation';
 import { useUser } from '../../../core/context/UserContext';
@@ -49,6 +49,11 @@ interface AdditionalPurchasePrices {
     min_quantity: number;
     max_quantity: number;
   };
+  pending_requests?: {
+    unit_price: number;
+    min_quantity: number;
+    max_quantity: number;
+  };
 }
 
 interface AvailableLimits {
@@ -68,6 +73,14 @@ interface AvailableLimits {
     available: number | null;
     is_unlimited: boolean;
   };
+  pending_requests?: {
+    plan_limit: number | null;
+    additional: number;
+    total_limit: number | null;
+    used: number;
+    available: number | null;
+    is_unlimited: boolean;
+  };
 }
 
 const PlansScreen: React.FC = () => {
@@ -75,8 +88,8 @@ const PlansScreen: React.FC = () => {
   const { user } = useUser();
   const [loading, setLoading] = useState(true);
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [autoRenewal, setAutoRenewal] = useState(false);
-  const [billingCycle, setBillingCycle] = useState<BillingCycle>('one_time');
+  const [autoRenewal, setAutoRenewal] = useState(true); // true = exibe mensal/semestral/anual (Core)
+  const [billingCycle, setBillingCycle] = useState<BillingCycle>('monthly');
   const [activeSubscription, setActiveSubscription] = useState<Subscription | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
   const [additionalPrices, setAdditionalPrices] = useState<AdditionalPurchasePrices | null>(null);
@@ -92,6 +105,13 @@ const PlansScreen: React.FC = () => {
     loadAdditionalPrices();
     loadAvailableLimits();
   }, []);
+
+  // Recarregar assinatura ativa quando a tela ganhar foco (ex: ao voltar da compra)
+  useFocusEffect(
+    React.useCallback(() => {
+      loadActiveSubscription();
+    }, [])
+  );
 
   // Log para debug quando o modal abrir
   useEffect(() => {
@@ -220,21 +240,30 @@ const PlansScreen: React.FC = () => {
       const response = await api.get<{ success: boolean; data: Subscription[] }>('user/subscriptions');
 
       if (response.success && Array.isArray(response.data)) {
-        // Buscar a assinatura ativa (status 'active' e end_date >= hoje)
+        // Buscar assinaturas ativas (status 'active' e end_date >= hoje)
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        
-        const active = response.data.find((sub: Subscription) => {
+
+        const activeSubscriptions = response.data.filter((sub: Subscription) => {
           if (sub.status !== 'active') return false;
-          if (!sub.end_date) return true; // Se não tem data de fim, considera ativa
+          if (!sub.end_date) return true;
           const endDate = new Date(sub.end_date);
           endDate.setHours(0, 0, 0, 0);
           return endDate >= today;
         });
 
+        // Se houver múltiplas ativas, priorizar Infinit (id 2) sobre Core (id 1)
+        // Ordena por plan_id descendente: Infinit ganha de Core
+        const active = activeSubscriptions.length > 0
+          ? [...activeSubscriptions].sort((a: Subscription, b: Subscription) => (b.plan_id ?? 0) - (a.plan_id ?? 0))[0]
+          : null;
+
         if (active) {
           setActiveSubscription(active);
           setSelectedPlanId(active.plan_id);
+        } else {
+          setActiveSubscription(null);
+          setSelectedPlanId(null);
         }
       }
     } catch (error: any) {
@@ -246,9 +275,13 @@ const PlansScreen: React.FC = () => {
   const getPrice = (plan: Plan): number => {
     let price: number | undefined | null;
     
-    // Se renovação automática está desativada, sempre retorna o preço único
+    // Se renovação automática está desativada, usa preço único (se existir)
     if (!autoRenewal) {
       price = plan.one_time_price;
+      // Plano Core é só recorrente (one_time_price = null) — fallback para mensal
+      if ((price == null || price === 0) && (plan.one_time_price == null || plan.one_time_price === 0)) {
+        price = plan.monthly_price;
+      }
     } else {
       // Se renovação automática está ativada, usa o ciclo selecionado
       switch (billingCycle) {
@@ -262,7 +295,7 @@ const PlansScreen: React.FC = () => {
           price = plan.annual_price;
           break;
         case 'one_time':
-          price = plan.one_time_price;
+          price = plan.one_time_price ?? plan.monthly_price; // Core não tem one_time, usa mensal
           break;
         default:
           price = plan.monthly_price;
@@ -275,6 +308,17 @@ const PlansScreen: React.FC = () => {
   
   const hasOneTimePrice = (plan: Plan): boolean => {
     return plan.one_time_price != null && plan.one_time_price > 0;
+  };
+
+  /** Período exibido ao lado do preço (único, /mês, etc). Para Core (só recorrente), usa mensal quando autoRenewal=false. */
+  const getPricePeriodLabel = (plan: Plan): string => {
+    if (autoRenewal && billingCycle !== 'one_time') {
+      return `/${getBillingLabel()}`;
+    }
+    if (plan.one_time_price != null && plan.one_time_price > 0) {
+      return ' único';
+    }
+    return '/mês'; // Fallback para planos só recorrentes (ex: Core)
   };
   
   const handleAutoRenewalChange = (value: boolean) => {
@@ -424,121 +468,6 @@ const PlansScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Compras Adicionais - Só mostrar se o modal não estiver aberto */}
-        {(() => {
-          const shouldShow = !showAdditionalPurchase && activeSubscription && availableLimits && additionalPrices;
-          console.log('🔴🔴🔴 RENDERIZAÇÃO - Seção Compras Adicionais:', {
-            showAdditionalPurchase,
-            activeSubscription: !!activeSubscription,
-            availableLimits: !!availableLimits,
-            additionalPrices: !!additionalPrices,
-            shouldShow
-          });
-          return shouldShow;
-        })() && (
-          <View style={styles.additionalSection}>
-            <Text style={styles.sectionTitle}>Comprar Recursos Adicionais</Text>
-            <Text style={styles.sectionDescription}>
-              Precisa de mais contratos ou conexões? Compre recursos adicionais sem precisar fazer upgrade do plano.
-            </Text>
-            
-            {/* Contratos Adicionais */}
-            {(() => {
-              const shouldShowContracts = !availableLimits.contracts.is_unlimited;
-              console.log('🔴🔴🔴 RENDERIZAÇÃO - Botão Contratos:', {
-                is_unlimited: availableLimits.contracts.is_unlimited,
-                shouldShowContracts
-              });
-              return shouldShowContracts;
-            })() && (
-              <View style={styles.additionalCard}>
-                <View style={styles.additionalHeader}>
-                  <SafeIcon name="document-text" size={24} color={CustomColors.activeColor} />
-                  <View style={styles.additionalInfo}>
-                    <Text style={styles.additionalTitle}>Contratos Adicionais</Text>
-                    <Text style={styles.additionalSubtitle}>
-                      {availableLimits.contracts.used}/{availableLimits.contracts.total_limit} utilizados
-                    </Text>
-                  </View>
-                  <Text style={styles.additionalPrice}>
-                    R$ {additionalPrices.contracts.unit_price.toFixed(2).replace('.', ',')}/unidade
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.buyButton}
-                  onPress={() => {
-                    console.log('🔴 BOTÃO CLICADO - Comprar Mais Contratos');
-                    console.log('🔴 Estado antes:', { additionalType, showAdditionalPurchase });
-                    openAdditionalPurchaseModal('contracts');
-                    console.log('🔴 Estado depois (pode não estar atualizado ainda):', { additionalType, showAdditionalPurchase });
-                  }}
-                >
-                  <Text style={styles.buyButtonText}>Comprar Mais Contratos</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {/* Conexões Adicionais */}
-            {(() => {
-              // Sempre mostrar o botão se houver preços disponíveis, independente de ser ilimitado ou não
-              const shouldShow = additionalPrices && additionalPrices.connections;
-              console.log('🔴🔴🔴 RENDERIZAÇÃO - Botão Conexões:', {
-                showAdditionalPurchase,
-                is_unlimited: availableLimits.connections.is_unlimited,
-                total_limit: availableLimits.connections.total_limit,
-                hasPrices: !!additionalPrices?.connections,
-                shouldShow: shouldShow
-              });
-              return shouldShow;
-            })() && (
-              <View style={styles.additionalCard}>
-                <View style={styles.additionalHeader}>
-                  <SafeIcon name="connections" size={24} color={CustomColors.activeColor} />
-                  <View style={styles.additionalInfo}>
-                    <Text style={styles.additionalTitle}>Conexões Adicionais</Text>
-                    <Text style={styles.additionalSubtitle}>
-                      {availableLimits.connections.used}/{availableLimits.connections.total_limit} utilizadas
-                    </Text>
-                  </View>
-                  <Text style={styles.additionalPrice}>
-                    R$ {additionalPrices.connections.unit_price.toFixed(2).replace('.', ',')}/unidade
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.buyButton}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    console.log('🔴🔴🔴🔴🔴 BOTÃO CLICADO - Comprar Mais Conexões 🔴🔴🔴🔴🔴');
-                    console.log('🔴 Estado ANTES:', { additionalType, showAdditionalPurchase, modalKey });
-                    
-                    // Fechar modal se estiver aberto
-                    if (showAdditionalPurchase) {
-                      console.log('🔴 Fechando modal primeiro...');
-                      setShowAdditionalPurchase(false);
-                    }
-                    
-                    // Incrementar key
-                    const newKey = modalKey + 1;
-                    setModalKey(newKey);
-                    console.log('🔴 Nova modalKey:', newKey);
-                    
-                    // Aguardar um pouco e então abrir com o tipo correto
-                    setTimeout(() => {
-                      console.log('🔴🔴🔴 Definindo type como connections 🔴🔴🔴');
-                      setAdditionalType('connections');
-                      setAdditionalQuantity(1);
-                      console.log('🔴🔴🔴 Abrindo modal com type: connections 🔴🔴🔴');
-                      setShowAdditionalPurchase(true);
-                    }, 150);
-                  }}
-                >
-                  <Text style={styles.buyButtonText}>Comprar Mais Conexões</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
-
         {/* Plans List */}
         {plans.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -578,12 +507,7 @@ const PlansScreen: React.FC = () => {
                 </View>
                 <View style={styles.priceContainer}>
                   <Text style={styles.price}>{formatPrice(getPrice(plan))}</Text>
-                  {autoRenewal && billingCycle !== 'one_time' && (
-                    <Text style={styles.pricePeriod}>/{getBillingLabel()}</Text>
-                  )}
-                  {(!autoRenewal || billingCycle === 'one_time') && (
-                    <Text style={styles.pricePeriod}> único</Text>
-                  )}
+                  <Text style={styles.pricePeriod}>{getPricePeriodLabel(plan)}</Text>
                 </View>
               </View>
 
@@ -621,6 +545,57 @@ const PlansScreen: React.FC = () => {
                   </View>
                 )}
               </View>
+
+              {/* Contratos e Conexões Adicionais - só no plano Core (tem limites) */}
+              {plan.id === 1 && additionalPrices && availableLimits && !showAdditionalPurchase && (
+                <View style={styles.additionalSectionInline}>
+                  {!availableLimits.contracts.is_unlimited && (
+                    <View style={[styles.additionalCard, styles.additionalCardInPlan]}>
+                      <View style={styles.additionalHeader}>
+                        <SafeIcon name="document-text" size={24} color={CustomColors.activeColor} />
+                        <View style={styles.additionalInfo}>
+                          <Text style={styles.additionalTitle}>Contratos Adicionais</Text>
+                          <Text style={styles.additionalSubtitle}>
+                            {availableLimits.contracts.used}/{availableLimits.contracts.total_limit} utilizados
+                          </Text>
+                        </View>
+                        <Text style={styles.additionalPrice}>
+                          R$ {additionalPrices.contracts.unit_price.toFixed(2).replace('.', ',')}/unidade
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.buyButton}
+                        onPress={() => openAdditionalPurchaseModal('contracts')}
+                      >
+                        <Text style={styles.buyButtonText}>Comprar Mais Contratos</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {additionalPrices.connections && !availableLimits.connections.is_unlimited && (
+                    <View style={[styles.additionalCard, styles.additionalCardInPlan]}>
+                      <View style={styles.additionalHeader}>
+                        <SafeIcon name="people" size={24} color={CustomColors.activeColor} />
+                        <View style={styles.additionalInfo}>
+                          <Text style={styles.additionalTitle}>Conexões Adicionais</Text>
+                          <Text style={styles.additionalSubtitle}>
+                            {availableLimits.connections.used}/{availableLimits.connections.total_limit ?? '∞'} utilizadas
+                          </Text>
+                        </View>
+                        <Text style={styles.additionalPrice}>
+                          R$ {additionalPrices.connections.unit_price.toFixed(2).replace('.', ',')}/unidade
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.buyButton}
+                        activeOpacity={0.7}
+                        onPress={() => openAdditionalPurchaseModal('connections')}
+                      >
+                        <Text style={styles.buyButtonText}>Comprar Mais Conexões</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
 
               <TouchableOpacity
                 style={[
@@ -939,6 +914,13 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     paddingHorizontal: 16,
   },
+  additionalSectionInline: {
+    marginTop: 16,
+    marginBottom: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: CustomColors.backgroundPrimaryColor,
+  },
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
@@ -961,6 +943,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  additionalCardInPlan: {
+    backgroundColor: CustomColors.backgroundPrimaryColor,
   },
   additionalHeader: {
     flexDirection: 'row',

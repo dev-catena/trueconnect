@@ -28,8 +28,10 @@
               </svg>
             </button>
             <button
+              v-if="!plan.is_default"
               @click="deletePlan(plan)"
               class="text-red-600 hover:text-red-900"
+              title="Excluir plano"
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
@@ -65,6 +67,18 @@
             :class="plan.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'"
           >
             {{ plan.active ? 'Ativo' : 'Inativo' }}
+          </span>
+          <span
+            v-if="plan.is_default"
+            class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+          >
+            Padrão
+          </span>
+          <span
+            v-if="plan.is_default"
+            class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+          >
+            Padrão
           </span>
           <span
             v-if="plan.featured"
@@ -162,6 +176,33 @@
             step="0.01"
             v-model="planForm.one_time_price"
             :error="errors.one_time_price"
+            :disabled="editingPlan?.is_default"
+          />
+        </div>
+        <p v-if="editingPlan?.is_default" class="text-sm text-gray-500 -mt-2 mb-2">
+          O plano padrão é sempre recorrente (pagamento mensal).
+        </p>
+        
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <FormInput
+            id="contracts_limit"
+            label="Limite de Contratos"
+            type="number"
+            min="1"
+            v-model="planForm.contracts_limit"
+            placeholder="Ilimitado (deixe vazio)"
+            :error="errors.contracts_limit"
+            :required="editingPlan?.is_default"
+          />
+          <FormInput
+            id="connections_limit"
+            label="Limite de Conexões"
+            type="number"
+            min="1"
+            v-model="planForm.connections_limit"
+            placeholder="Ilimitado (deixe vazio)"
+            :error="errors.connections_limit"
+            :required="editingPlan?.is_default"
           />
         </div>
         
@@ -262,6 +303,8 @@ const planForm = reactive({
   semiannual_price: '',
   annual_price: '',
   one_time_price: '',
+  contracts_limit: '',
+  connections_limit: '',
   features: [''],
   active: true,
   featured: false
@@ -276,11 +319,12 @@ const formatPrice = (price) => {
 
 const fetchPlans = async () => {
   try {
-    const response = await api.get('/plans')
+    const response = await api.get('/admin/plans')
     const apiPlans = response.data.data || []
     
     // Transformar os planos da API para o formato esperado pelo componente
-    plans.value = apiPlans.map(plan => ({
+    const plansList = Array.isArray(apiPlans) ? apiPlans : (apiPlans?.data || [])
+    plans.value = plansList.map(plan => ({
       id: plan.id,
       origId: plan.id,
       name: plan.name,
@@ -291,9 +335,12 @@ const fetchPlans = async () => {
       one_time_price: (plan.one_time_price != null && plan.one_time_price !== '' && plan.one_time_price !== 'null') 
         ? parseFloat(plan.one_time_price) 
         : null,
-      features: plan.features,
+      contracts_limit: plan.contracts_limit != null ? plan.contracts_limit : null,
+      connections_limit: plan.connections_limit != null ? plan.connections_limit : null,
+      features: plan.features || [],
       active: plan.is_active,
-      featured: plan.id === 2 // Plano Intermediário como destaque
+      is_default: plan.is_default || false,
+      featured: plan.featured || plan.id === 2
     }))
 
     // Se não houver planos, usar os planos padrão
@@ -340,11 +387,13 @@ const editPlan = (plan) => {
   editingPlan.value = plan
   planForm.name = plan.name
   planForm.description = plan.description
-  planForm.monthly_price = plan.monthly_price || ''
-  planForm.semiannual_price = plan.semiannual_price || ''
-  planForm.annual_price = plan.annual_price || ''
-  planForm.one_time_price = plan.one_time_price || ''
-  planForm.features = [...plan.features]
+  planForm.monthly_price = plan.monthly_price ?? ''
+  planForm.semiannual_price = plan.semiannual_price ?? ''
+  planForm.annual_price = plan.annual_price ?? ''
+  planForm.one_time_price = plan.one_time_price ?? ''
+  planForm.contracts_limit = plan.contracts_limit != null ? plan.contracts_limit : ''
+  planForm.connections_limit = plan.connections_limit != null ? plan.connections_limit : ''
+  planForm.features = Array.isArray(plan.features) && plan.features.length ? [...plan.features] : ['']
   planForm.active = plan.active
   planForm.featured = plan.featured
   showEditModal.value = true
@@ -361,6 +410,8 @@ const closeModal = () => {
       planForm[key] = true
     } else if (key === 'featured') {
       planForm[key] = false
+    } else if (key === 'contracts_limit' || key === 'connections_limit') {
+      planForm[key] = ''
     } else {
       planForm[key] = ''
     }
@@ -398,8 +449,10 @@ const savePlan = async () => {
       monthly_price: parsePrice(planForm.monthly_price) ?? 0,
       semiannual_price: parsePrice(planForm.semiannual_price) ?? 0,
       annual_price: parsePrice(planForm.annual_price) ?? 0,
-      one_time_price: parsePrice(planForm.one_time_price),
-      features: planForm.features.filter(f => f.trim() !== ''),
+      one_time_price: editingPlan.value?.is_default ? null : parsePrice(planForm.one_time_price),
+      contracts_limit: planForm.contracts_limit === '' ? null : parseInt(planForm.contracts_limit) || null,
+      connections_limit: planForm.connections_limit === '' ? null : parseInt(planForm.connections_limit) || null,
+      features: planForm.features.filter(f => f && String(f).trim() !== ''),
       is_active: planForm.active
     }
     
@@ -427,12 +480,19 @@ const savePlan = async () => {
 }
 
 const deletePlan = async (plan) => {
-  if (confirm(`Tem certeza que deseja excluir o plano ${plan.name}?`)) {
+  if (plan.is_default) {
+    alert('O plano padrão não pode ser excluído.')
+    return
+  }
+  if (confirm(`Tem certeza que deseja desativar o plano ${plan.name}?`)) {
     try {
       await api.delete(`/plans/${plan.id}`)
       await fetchPlans()
     } catch (error) {
       console.error('Erro ao excluir plano:', error)
+      if (error.response?.data?.message) {
+        alert(error.response.data.message)
+      }
     }
   }
 }

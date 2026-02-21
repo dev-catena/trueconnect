@@ -1,5 +1,9 @@
-export const API_HOST = 'api-trustme.catenasystem.com.br';
-export const API_BASE_URL = `https://${API_HOST}/api`;
+// Única configuração do backend - porta 8000
+// Altere API_HOST: 10.0.2.2 (emulador Android) | 10.102.0.103 (dispositivo físico) | localhost (iOS simulator)
+export const API_HOST = '10.102.0.103';
+export const API_PORT = '8000';
+export const API_BASE_URL = `http://${API_HOST}:${API_PORT}/api`;
+export const BACKEND_BASE_URL = `http://${API_HOST}:${API_PORT}`; // Para URLs de storage/fotos
 
 export const STORAGE_KEYS = {
   AUTH_TOKEN: 'authToken',

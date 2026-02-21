@@ -95,7 +95,8 @@ const ProfileScreen: React.FC = () => {
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       
       const token = await AsyncStorage.getItem('authToken');
-      const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001/api' : 'https://api-trustme.catenasystem.com.br/api';
+      const { API_BASE_URL } = require('../../../utils/constants');
+      const BASE_URL = API_BASE_URL;
       
       const formData = new FormData();
       formData.append('foto', {
@@ -148,8 +149,8 @@ const ProfileScreen: React.FC = () => {
             // Construir URL completa da foto se necessário
             if (updatedUserData.caminho_foto) {
               if (!updatedUserData.caminho_foto.startsWith('http')) {
-                const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
-                updatedUserData.caminho_foto = BASE_URL + (updatedUserData.caminho_foto.startsWith('/') ? updatedUserData.caminho_foto : '/' + updatedUserData.caminho_foto);
+                const { BACKEND_BASE_URL } = require('../../../utils/constants');
+                updatedUserData.caminho_foto = BACKEND_BASE_URL + (updatedUserData.caminho_foto.startsWith('/') ? updatedUserData.caminho_foto : '/' + updatedUserData.caminho_foto);
               }
               console.log('👤 Usuário atualizado com foto:', updatedUserData.caminho_foto);
               console.log('📸 Dados completos do usuário:', JSON.stringify({
@@ -318,7 +319,8 @@ const ProfileScreen: React.FC = () => {
                   uri: (() => {
                     let fotoUrl = user.caminho_foto;
                     if (!fotoUrl.startsWith('http')) {
-                      const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
+                      const { BACKEND_BASE_URL } = require('../../../utils/constants');
+                      const BASE_URL = BACKEND_BASE_URL;
                       fotoUrl = BASE_URL + (fotoUrl.startsWith('/') ? fotoUrl : '/' + fotoUrl);
                     }
                     if (__DEV__) {

@@ -20,7 +20,8 @@ class Selo extends Model
         'documentos_evidencias',
         'descricao_como_obter',
         'custo_obtencao',
-        'ativo'
+        'ativo',
+        'disponivel',
     ];
 
     protected $casts = [

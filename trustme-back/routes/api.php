@@ -32,6 +32,7 @@ use App\Http\Controllers\DadosIniciaisController;
 use App\Http\Controllers\PerguntaController;
 use App\Http\Controllers\UsuarioChaveController;
 use App\Http\Controllers\UsuarioConexaoController;
+use App\Http\Controllers\UserNotificationController;
 use App\Http\Controllers\UsuarioVerificacaoController;
 use App\Http\Controllers\ConnectionStatusController;
 use App\Http\Controllers\ParametroSistemaController;
@@ -100,6 +101,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/requests/{id}/approve', [SealRequestController::class, 'approve']);
         Route::post('/requests/{id}/reject', [SealRequestController::class, 'reject']);
         Route::post('/requests/{id}/revoke', [SealRequestController::class, 'revoke']);
+        Route::post('/requests/{id}/revert-rejection', [SealRequestController::class, 'revertRejection']);
+        Route::delete('/requests/{id}', [SealRequestController::class, 'destroy']);
     });
 
     // Autenticação
@@ -118,6 +121,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Perfil do usuário
     Route::get('/user/profile', [UserController::class, 'profile']);
     Route::put('/user/profile', [UserController::class, 'updateProfile']);
+
+    // Notificações do usuário
+    Route::get('/user/notifications', [UserNotificationController::class, 'index']);
+    Route::put('/user/notifications/{id}/read', [UserNotificationController::class, 'markAsRead']);
+    Route::put('/user/notifications/read-all', [UserNotificationController::class, 'markAllAsRead']);
 
     // Assinaturas do usuário
     Route::get('/user/subscriptions', [SubscriptionController::class, 'userSubscriptions']);
@@ -150,6 +158,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('users', UserController::class);
 
         // Gestão de planos
+        Route::get('/admin/plans', [PlanController::class, 'adminIndex']);
         Route::apiResource('plans', PlanController::class)->except(['index', 'show']);
 
         // Gestão de assinaturas
@@ -200,6 +209,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/seal-requests/{id}', [SealRequestController::class, 'show']);
         Route::post('/admin/seal-requests/{id}/approve', [SealRequestController::class, 'approve']);
         Route::post('/admin/seal-requests/{id}/reject', [SealRequestController::class, 'reject']);
+        Route::post('/admin/seal-requests/{id}/revoke', [SealRequestController::class, 'revoke']);
+        Route::post('/admin/seal-requests/{id}/revert-rejection', [SealRequestController::class, 'revertRejection']);
+        Route::delete('/admin/seal-requests/{id}', [SealRequestController::class, 'destroy']);
     });
 
     // Histórico de Login
@@ -263,8 +275,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/buscar-completo/{id}', [ContratoController::class, 'showCompleto']);
         Route::patch('/atualizar/{id}', [ContratoController::class, 'update']);
         Route::delete('/excluir/{id}', [ContratoController::class, 'destroy']);
+        Route::post('/rescindir/{id}', [ContratoController::class, 'rescind']);
         Route::post('/clausula/aceitar', [ContratoClausulaController::class, 'aceitarClausula']);
+        Route::post('/clausula/revogar', [ContratoClausulaController::class, 'revogarClausulas']);
         Route::post('/pergunta/responder', [ContratoUsuarioPerguntaController::class, 'responder']);
+        Route::post('/{id}/remover-participante', [ContratoController::class, 'removerParticipante']);
         Route::post('/{id}/responder', [ContratoController::class, 'responderContrato']);
         Route::post('/{id}/aceitar', [ContratoController::class, 'aceitarContrato']);
         Route::post('/{id}/rejeitar', [ContratoController::class, 'rejeitarContrato']);

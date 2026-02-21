@@ -2,50 +2,91 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\SealRequestAtualizado;
 use App\Models\SealRequest;
 use App\Models\UserSeal;
 use App\Models\SealType;
+use App\Models\UsuarioSelo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 class SealRequestController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $requests = SealRequest::with(['user', 'sealType'])
-            ->withCount('documents')
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $perPage = min((int) ($request->get('per_page', 15) ?: 15), 50);
+        $perPage = max($perPage, 5);
+        $status = $request->get('status'); // 'pending', 'approved', 'rejected' ou vazio para todos
 
-        // Agrupar por usuário
-        $groupedByUser = $requests->groupBy('user_id')->map(function ($userRequests, $userId) {
+        $query = SealRequest::with(['user', 'sealType'])
+            ->withCount('documents')
+            ->orderBy('created_at', 'desc');
+
+        if ($status === 'pending' || $status === 'para_aprovar') {
+            $query->whereIn('status', ['pending', 'under_review']);
+        } elseif ($status === 'approved' || $status === 'aprovados') {
+            $query->where('status', 'approved');
+        } elseif ($status === 'rejected' || $status === 'rejeitados') {
+            $query->where('status', 'rejected');
+        }
+
+        $search = trim((string) $request->get('search', ''));
+        if ($search !== '') {
+            $searchPattern = '%' . addcslashes($search, '%_\\') . '%';
+            $query->whereHas('user', function ($q) use ($searchPattern) {
+                $q->where('name', 'like', $searchPattern)
+                    ->orWhere('nome_completo', 'like', $searchPattern)
+                    ->orWhere('email', 'like', $searchPattern);
+            });
+        }
+
+        $paginator = $query->paginate($perPage);
+
+        // Formato agrupado por usuário (compatível com frontend existente)
+        $groupedByUser = $paginator->getCollection()->groupBy('user_id')->map(function ($userRequests, $userId) {
             $firstRequest = $userRequests->first();
             return [
                 'user_id' => $userId,
                 'user_name' => $firstRequest->user->name,
                 'user_email' => $firstRequest->user->email,
-                'requests' => $userRequests->map(function ($request) {
+                'requests' => $userRequests->map(function ($req) {
                     return [
-                        'id' => $request->id,
-                        'seal_type_id' => $request->seal_type_id,
-                        'seal_type_name' => $request->sealType->name,
-                        'seal_type_code' => $request->sealType->code,
-                        'seal_type_requires_manual_approval' => $request->sealType->requires_manual_approval,
-                        'status' => $request->status,
-                        'notes' => $request->notes,
-                        'documents_count' => $request->documents_count,
-                        'created_at' => $request->created_at,
-                        'reviewed_at' => $request->reviewed_at,
-                        'rejection_reason' => $request->rejection_reason
+                        'id' => $req->id,
+                        'seal_type_id' => $req->seal_type_id,
+                        'seal_type_name' => $req->sealType->name,
+                        'seal_type_code' => $req->sealType->code,
+                        'seal_type_requires_manual_approval' => $req->sealType->requires_manual_approval,
+                        'status' => $req->status,
+                        'notes' => $req->notes,
+                        'documents_count' => $req->documents_count,
+                        'created_at' => $req->created_at,
+                        'reviewed_at' => $req->reviewed_at,
+                        'rejection_reason' => $req->rejection_reason
                     ];
                 })->values()
             ];
         })->values();
 
+        $meta = [
+            'current_page' => $paginator->currentPage(),
+            'last_page' => $paginator->lastPage(),
+            'per_page' => $paginator->perPage(),
+            'total' => $paginator->total(),
+            'from' => $paginator->firstItem(),
+            'to' => $paginator->lastItem(),
+        ];
+
+        if ($request->boolean('include_counts')) {
+            $meta['count_pending'] = SealRequest::whereIn('status', ['pending', 'under_review'])->count();
+            $meta['count_approved'] = SealRequest::where('status', 'approved')->count();
+            $meta['count_rejected'] = SealRequest::where('status', 'rejected')->count();
+        }
+
         return response()->json([
             'success' => true,
-            'data' => $groupedByUser
+            'data' => $groupedByUser,
+            'meta' => $meta
         ]);
     }
 
@@ -114,7 +155,8 @@ class SealRequestController extends Controller
     public function approve(Request $request, $id)
     {
         $sealRequest = SealRequest::with(['sealType'])->findOrFail($id);
-        
+        $expiresAt = $this->calcularExpiresAt($sealRequest->sealType);
+
         // Criar ou atualizar user_seal
         $userSeal = UserSeal::updateOrCreate(
             [
@@ -125,7 +167,7 @@ class SealRequestController extends Controller
                 'status' => 'approved',
                 'approved_at' => now(),
                 'approved_by' => $request->user()->id,
-                'expires_at' => null // Pode ser configurado baseado no tipo de selo
+                'expires_at' => $expiresAt
             ]
         );
 
@@ -135,6 +177,8 @@ class SealRequestController extends Controller
             'reviewed_by' => $request->user()->id,
             'reviewed_at' => now()
         ]);
+
+        SealRequestAtualizado::dispatch($sealRequest->fresh(), 'aprovada');
 
         return response()->json([
             'success' => true,
@@ -157,6 +201,8 @@ class SealRequestController extends Controller
             'reviewed_at' => now()
         ]);
 
+        SealRequestAtualizado::dispatch($sealRequest->fresh(), 'rejeitada');
+
         // Atualizar user_seal se existir
         UserSeal::where('user_id', $sealRequest->user_id)
             ->where('seal_type_id', $sealRequest->seal_type_id)
@@ -164,6 +210,9 @@ class SealRequestController extends Controller
                 'status' => 'rejected',
                 'rejection_reason' => $request->reason
             ]);
+
+        // Limpar UsuarioSelo legado (evita "selo pendente fantasma" no app)
+        $this->limparUsuarioSeloLegado($sealRequest->user_id, $sealRequest->seal_type_id);
 
         return response()->json([
             'success' => true,
@@ -188,6 +237,9 @@ class SealRequestController extends Controller
             ->where('status', 'approved')
             ->delete();
 
+        // Limpar UsuarioSelo legado para consistência
+        $this->limparUsuarioSeloLegado($sealRequest->user_id, $sealRequest->seal_type_id);
+
         // Atualizar status da solicitação para 'revoked' ou 'pending'
         $sealRequest->update([
             'status' => 'pending',
@@ -196,9 +248,113 @@ class SealRequestController extends Controller
             'rejection_reason' => null
         ]);
 
+        SealRequestAtualizado::dispatch($sealRequest->fresh(), 'revogada');
+
         return response()->json([
             'success' => true,
             'message' => 'Aprovação revogada com sucesso. O selo foi removido do usuário.'
         ]);
+    }
+
+    /**
+     * Reverter rejeição: retorna solicitação rejeitada para status "pendente".
+     */
+    public function revertRejection(Request $request, $id)
+    {
+        $sealRequest = SealRequest::findOrFail($id);
+
+        if ($sealRequest->status !== 'rejected') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Apenas solicitações rejeitadas podem ter a rejeição revertida'
+            ], 400);
+        }
+
+        // Remover UserSeal rejeitado se existir
+        UserSeal::where('user_id', $sealRequest->user_id)
+            ->where('seal_type_id', $sealRequest->seal_type_id)
+            ->where('status', 'rejected')
+            ->delete();
+
+        $sealRequest->update([
+            'status' => 'pending',
+            'reviewed_by' => null,
+            'reviewed_at' => null,
+            'rejection_reason' => null
+        ]);
+
+        SealRequestAtualizado::dispatch($sealRequest->fresh(), 'rejeição_revertida');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Rejeição revertida com sucesso. A solicitação voltou para análise.'
+        ]);
+    }
+
+    /**
+     * Excluir solicitação rejeitada permanentemente.
+     */
+    public function destroy(Request $request, $id)
+    {
+        $sealRequest = SealRequest::findOrFail($id);
+
+        if ($sealRequest->status !== 'rejected') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Apenas solicitações rejeitadas podem ser excluídas'
+            ], 400);
+        }
+
+        // Remover UserSeal rejeitado se existir
+        UserSeal::where('user_id', $sealRequest->user_id)
+            ->where('seal_type_id', $sealRequest->seal_type_id)
+            ->where('status', 'rejected')
+            ->delete();
+
+        // Limpar UsuarioSelo legado (evita "selo pendente fantasma" no app)
+        $this->limparUsuarioSeloLegado($sealRequest->user_id, $sealRequest->seal_type_id);
+
+        SealRequestAtualizado::dispatch($sealRequest->fresh(), 'excluída');
+        $sealRequest->delete(); // CASCADE remove documentos automaticamente
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Solicitação excluída com sucesso'
+        ]);
+    }
+
+    /**
+     * Remove UsuarioSelo legado quando um selo é rejeitado/excluído.
+     * Evita "selo pendente fantasma" no app (usuário teve selos excluídos mas ainda vê pendente).
+     */
+    private function limparUsuarioSeloLegado(int $userId, int $sealTypeId): void
+    {
+        $sealType = SealType::find($sealTypeId);
+        if (!$sealType?->code) {
+            return;
+        }
+        $selo = \App\Models\Selo::where('codigo', $sealType->code)->first();
+        if (!$selo) {
+            return;
+        }
+        UsuarioSelo::where('usuario_id', $userId)
+            ->where('selo_id', $selo->id)
+            ->delete(); // SoftDelete - some da lista de pendentes
+    }
+
+    /**
+     * Calcula expires_at com base na validade (dias) do selo.
+     * Validade vem do Selo (codigo = SealType.code). Se validade for null/0, retorna null (sem expiração).
+     */
+    private function calcularExpiresAt(?SealType $sealType): ?\DateTimeInterface
+    {
+        if (!$sealType?->code) {
+            return null;
+        }
+        $selo = \App\Models\Selo::where('codigo', $sealType->code)->first();
+        if (!$selo || !$selo->validade || $selo->validade <= 0) {
+            return null;
+        }
+        return now()->addDays((int) $selo->validade);
     }
 }

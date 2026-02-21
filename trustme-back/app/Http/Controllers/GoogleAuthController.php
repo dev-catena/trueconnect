@@ -54,7 +54,7 @@ class GoogleAuthController extends Controller
 					'email' => $googleUser->getEmail(),
 					'google_id' => $googleUser->getId(),
 					'email_verified_at' => now(), // Google já verifica o email
-					'password' => Hash::make(Str::random(16)), // Senha aleatória
+					'password' => Str::random(16), // Senha aleatória (cast 'hashed' no model aplica Hash::make)
 					'avatar' => $googleUser->getAvatar(),
 				]);
 

@@ -116,9 +116,10 @@ const StorePurchaseMockupScreen: React.FC = () => {
               console.warn('Erro ao atualizar dados do usuário após compra adicional:', e);
             }
             
+            const typeLabel = additionalPurchase.type === 'contracts' ? 'contrato(s)' : additionalPurchase.type === 'connections' ? 'conexão(ões) ativa(s)' : 'solicitação(ões) pendente(s)';
             Alert.alert(
               'Compra Confirmada',
-              `${additionalPurchase.quantity} ${additionalPurchase.type === 'contracts' ? 'contrato(s)' : 'conexão(ões)'} adicional(is) comprado(s) com sucesso!`,
+              `${additionalPurchase.quantity} ${typeLabel} adicional(is) comprado(s) com sucesso!`,
               [
                 {
                   text: 'OK',
@@ -219,7 +220,8 @@ const StorePurchaseMockupScreen: React.FC = () => {
 
   const getPurchaseTitle = () => {
     if (additionalPurchase) {
-      return `${additionalPurchase.quantity} ${additionalPurchase.type === 'contracts' ? 'Contrato(s)' : 'Conexão(ões)'} Adicional(is)`;
+      const label = additionalPurchase.type === 'contracts' ? 'Contrato(s)' : additionalPurchase.type === 'connections' ? 'Conexão(ões) ativa(s)' : 'Solicitação(ões) pendente(s)';
+      return `${additionalPurchase.quantity} ${label} Adicional(is)`;
     }
     if (isSeal && seal) {
       return seal.nome || seal.descricao || seal.codigo || 'Selo';
@@ -263,7 +265,7 @@ const StorePurchaseMockupScreen: React.FC = () => {
                 )}
                 {additionalPurchase && (
                   <Text style={styles.purchaseSubtitle}>
-                    {additionalPurchase.type === 'contracts' ? 'Contratos' : 'Conexões'} adicionais para seu plano
+                    {additionalPurchase.type === 'contracts' ? 'Contratos' : additionalPurchase.type === 'connections' ? 'Conexões ativas' : 'Solicitações pendentes'} adicionais para seu plano
                   </Text>
                 )}
                 <Text style={styles.purchasePrice}>{formatPrice(price)}</Text>

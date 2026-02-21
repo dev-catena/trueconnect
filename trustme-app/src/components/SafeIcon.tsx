@@ -35,6 +35,7 @@ const iconMap: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
   'check': 'check',
   'close': 'close',
   'account': 'account',
+  'account-minus': 'account-minus',
   'clock': 'clock-outline',
   'time': 'clock-outline',
   'logout': 'logout',
@@ -43,6 +44,7 @@ const iconMap: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
   'link-off': 'link-off',
   star: 'star',
   'star-outline': 'star-outline',
+  people: 'account-group',
 };
 
 const SafeIcon: React.FC<SafeIconProps> = ({ 

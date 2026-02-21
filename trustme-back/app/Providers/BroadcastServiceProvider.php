@@ -12,7 +12,11 @@ class BroadcastServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        Broadcast::routes();
+        // Rota para app React Native com auth via token (Sanctum)
+        Broadcast::routes([
+            'middleware' => ['auth:sanctum'],
+            'prefix' => 'api',
+        ]);
 
         require base_path('routes/channels.php');
     }

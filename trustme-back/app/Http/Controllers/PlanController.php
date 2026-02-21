@@ -9,9 +9,28 @@ use Illuminate\Support\Facades\DB;
 
 class PlanController extends Controller
 {
+    /**
+     * Lista planos ativos (rota pública para app/loja)
+     */
     public function index()
     {
         $plans = Plan::where('is_active', true)->get();
+        
+        return response()->json([
+            'success' => true,
+            'data' => $plans
+        ]);
+    }
+
+    /**
+     * Lista planos ativos para o admin (apenas Core e Infinit)
+     */
+    public function adminIndex()
+    {
+        $plans = Plan::where('is_active', true)
+            ->orderByRaw('is_default DESC')
+            ->orderBy('id')
+            ->get();
         
         return response()->json([
             'success' => true,
@@ -47,6 +66,7 @@ class PlanController extends Controller
             'one_time_price' => 'nullable|numeric|min:0',
             'seals_limit' => 'nullable|integer|min:0',
             'contracts_limit' => 'nullable|integer|min:0',
+            'connections_limit' => 'nullable|integer|min:0',
             'features' => 'nullable|array',
         ]);
 
@@ -92,6 +112,7 @@ class PlanController extends Controller
             'one_time_price' => 'nullable|numeric|min:0',
             'seals_limit' => 'nullable|integer|min:0',
             'contracts_limit' => 'nullable|integer|min:0',
+            'connections_limit' => 'nullable|integer|min:0',
             'features' => 'nullable|array',
         ]);
 
@@ -103,6 +124,31 @@ class PlanController extends Controller
         }
 
         $data = $request->all();
+
+        // Plano padrão: conexões e contratos devem ser finitos (recorrente)
+        if ($plan->is_default) {
+            $contractsLimit = array_key_exists('contracts_limit', $data)
+                ? ($data['contracts_limit'] === '' || $data['contracts_limit'] === null ? null : (int)$data['contracts_limit'])
+                : $plan->contracts_limit;
+            $connectionsLimit = array_key_exists('connections_limit', $data)
+                ? ($data['connections_limit'] === '' || $data['connections_limit'] === null ? null : (int)$data['connections_limit'])
+                : $plan->connections_limit;
+
+            if ($contractsLimit === null || $contractsLimit < 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'O plano padrão deve ter um limite de contratos definido (não pode ser ilimitado).',
+                    'errors' => ['contracts_limit' => ['O plano padrão exige limite finito de contratos.']]
+                ], 422);
+            }
+            if ($connectionsLimit === null || $connectionsLimit < 1) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'O plano padrão deve ter um limite de conexões definido (não pode ser ilimitado).',
+                    'errors' => ['connections_limit' => ['O plano padrão exige limite finito de conexões.']]
+                ], 422);
+            }
+        }
         
         // Preparar dados para atualização de forma mais segura
         $dataToUpdate = [];
@@ -124,9 +170,11 @@ class PlanController extends Controller
             $dataToUpdate['annual_price'] = is_numeric($data['annual_price']) ? (float)$data['annual_price'] : 0;
         }
         
-        // one_time_price - pode ser null (tratamento especial)
+        // one_time_price - pode ser null. Plano padrão é sempre recorrente (forçar null)
         $oneTimePriceToSet = null;
-        if (array_key_exists('one_time_price', $data)) {
+        if ($plan->is_default) {
+            $oneTimePriceToSet = null; // Plano padrão é recorrente (pagamento mensal)
+        } elseif (array_key_exists('one_time_price', $data)) {
             if ($data['one_time_price'] === '' || $data['one_time_price'] === null || $data['one_time_price'] === 'null') {
                 $oneTimePriceToSet = null;
             } else {
@@ -141,6 +189,9 @@ class PlanController extends Controller
         if (array_key_exists('contracts_limit', $data)) {
             $dataToUpdate['contracts_limit'] = ($data['contracts_limit'] === '' || $data['contracts_limit'] === null) ? null : (int)$data['contracts_limit'];
         }
+        if (array_key_exists('connections_limit', $data)) {
+            $dataToUpdate['connections_limit'] = ($data['connections_limit'] === '' || $data['connections_limit'] === null) ? null : (int)$data['connections_limit'];
+        }
         
         try {
             // Atualizar campos normais
@@ -153,6 +204,11 @@ class PlanController extends Controller
                 DB::table('plans')
                     ->where('id', $plan->id)
                     ->update(['one_time_price' => $oneTimePriceToSet]);
+            }
+            
+            // Plano padrão: garantir one_time_price = null (recorrente)
+            if ($plan->is_default) {
+                DB::table('plans')->where('id', $plan->id)->update(['one_time_price' => null]);
             }
             
             // Recarregar o modelo para refletir todas as mudanças
@@ -196,6 +252,13 @@ class PlanController extends Controller
                 'success' => false,
                 'message' => 'Plano não encontrado'
             ], 404);
+        }
+
+        if ($plan->is_default) {
+            return response()->json([
+                'success' => false,
+                'message' => 'O plano padrão não pode ser excluído nem desativado.'
+            ], 403);
         }
 
         $plan->update(['is_active' => false]);

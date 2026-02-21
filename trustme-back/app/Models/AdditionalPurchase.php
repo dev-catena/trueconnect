@@ -60,4 +60,15 @@ class AdditionalPurchase extends Model
             ->where('status', 'completed')
             ->sum('quantity');
     }
+
+    /**
+     * Retorna a quantidade total de solicitações pendentes adicionais compradas e ativas
+     */
+    public static function getTotalAdditionalPendingRequests($userId)
+    {
+        return self::where('user_id', $userId)
+            ->where('type', 'pending_requests')
+            ->where('status', 'completed')
+            ->sum('quantity');
+    }
 }

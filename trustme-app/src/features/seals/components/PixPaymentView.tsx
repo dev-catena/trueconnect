@@ -22,7 +22,6 @@ const PixPaymentView: React.FC<PixPaymentViewProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
-  // Gerar URL do QR Code usando API pública
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrCode)}`;
 
   const handleCopyCode = async () => {

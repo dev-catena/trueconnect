@@ -12,7 +12,8 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        // Marcar selos expirados diariamente (meia-noite)
+        $schedule->command('selos:marcar-expirados')->daily();
     }
 
     /**

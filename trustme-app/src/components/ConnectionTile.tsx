@@ -3,24 +3,32 @@ import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Connection, ConnectionStatus } from '../types';
 import { CustomColors } from '../core/colors';
 import { formatTimeAgo } from '../utils/dateParser';
+import { BACKEND_BASE_URL } from '../utils/constants';
 import SafeIcon from './SafeIcon';
 
 interface ConnectionTileProps {
   connection: Connection;
+  currentUserId?: number;
   onPress?: () => void;
   onAccept?: () => void;
   onReject?: () => void;
+  onCancel?: () => void;
 }
 
 const ConnectionTile: React.FC<ConnectionTileProps> = ({
   connection,
+  currentUserId,
   onPress,
   onAccept,
   onReject,
+  onCancel,
 }) => {
-  // Determinar qual usuário é o "outro" (não o usuário atual)
-  // Se connection.solicitante existe e tem dados, usar ele, senão usar destinatario
-  const otherUser = connection.solicitante?.id ? connection.solicitante : (connection.destinatario || connection.solicitante);
+  // Quem RECEBEU a solicitação (destinatário) pode aceitar/rejeitar. Quem ENVIOU só vê "Aguardando"
+  const isRecipient = connection.destinatario_id === currentUserId;
+  const isRequestedByMe = connection.solicitante_id === currentUserId;
+  const showAcceptReject = isRecipient; // Só quem recebe tem botão aceitar/rejeitar
+
+  const otherUser = connection.solicitante_id === currentUserId ? connection.destinatario : connection.solicitante;
   const isPending = connection.aceito === null || connection.aceito === undefined;
   const isAccepted = connection.aceito === true;
 
@@ -28,23 +36,12 @@ const ConnectionTile: React.FC<ConnectionTileProps> = ({
   const getPhotoUrl = (caminhoFoto?: string) => {
     if (!caminhoFoto) return null;
     if (caminhoFoto.startsWith('http')) return caminhoFoto;
-    const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
-    return BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
+    return BACKEND_BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
   };
 
   const photoUrl = getPhotoUrl(otherUser?.caminho_foto);
   const userName = otherUser?.nome_completo || otherUser?.name || 'Usuário';
   const userInitial = userName.charAt(0).toUpperCase();
-
-  // Debug: log para verificar se caminho_foto está presente
-  if (__DEV__ && otherUser) {
-    console.log('ConnectionTile - otherUser:', {
-      id: otherUser.id,
-      nome: userName,
-      caminho_foto: otherUser.caminho_foto,
-      photoUrl: photoUrl,
-    });
-  }
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress}>
@@ -73,7 +70,7 @@ const ConnectionTile: React.FC<ConnectionTileProps> = ({
             <Text style={styles.date}>{formatTimeAgo(connection.created_at)}</Text>
           )}
         </View>
-        {isPending && (
+        {isPending && showAcceptReject && (
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.actionButton, styles.acceptButton]}
@@ -95,6 +92,11 @@ const ConnectionTile: React.FC<ConnectionTileProps> = ({
                 color={CustomColors.white}
               />
             </TouchableOpacity>
+          </View>
+        )}
+        {isPending && isRequestedByMe && (
+          <View style={[styles.statusBadge, styles.awaitingBadge]}>
+            <Text style={[styles.statusText, styles.awaitingText]}>Aguardando</Text>
           </View>
         )}
         {isAccepted && (
@@ -190,6 +192,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
+  },
+  awaitingBadge: {
+    backgroundColor: CustomColors.pendingYellow + '33',
+  },
+  awaitingText: {
+    color: CustomColors.pendingYellow,
   },
   statusText: {
     color: CustomColors.successGreen,

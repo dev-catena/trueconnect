@@ -88,7 +88,7 @@ npm run web        # Abre no navegador
 
 ## 🔗 Backend
 
-O app está configurado para se conectar ao backend na porta 8001.
+O app está configurado para se conectar ao backend na porta 8000.
 
 ### Expo Go detecta automaticamente:
 - **Tunnel**: Usa `localhost:8001` (funciona com tunnel)
@@ -134,7 +134,7 @@ O app está configurado para se conectar ao backend na porta 8001.
 3. Verifique o firewall
 
 ### Backend não acessível
-1. Verifique se o backend está rodando na porta 8001
+1. Verifique se o backend está rodando na porta 8000
 2. No Expo Go, o IP é detectado automaticamente
 3. Se usar tunnel, o backend precisa estar acessível publicamente
 
@@ -153,7 +153,7 @@ npm install
 - [x] Scripts configurados
 - [x] ApiProvider atualizado para Expo
 - [ ] Expo Go instalado no dispositivo
-- [ ] Backend rodando na porta 8001
+- [ ] Backend rodando na porta 8000
 - [ ] App testado no Expo Go
 
 ## 📚 Próximos Passos

@@ -25,25 +25,41 @@ const SealAcquisitionScreen: React.FC = () => {
   const route = useRoute<SealAcquisitionScreenRouteProp>();
   const { selo } = route.params;
 
-  // Obter documentos necessários do selo (memoizado para evitar recriações)
-  const requiredDocuments = React.useMemo(() => {
-    return selo.documentos_evidencias && selo.documentos_evidencias.length > 0
-      ? selo.documentos_evidencias
-      : ['Frente', 'Trás']; // Fallback para compatibilidade
+  // Documentos do selo: suporta formato legado (string[]) ou novo [{nome, obrigatorio}]
+  const documentItems = React.useMemo(() => {
+    const raw = selo.documentos_evidencias;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return [{ nome: 'Frente', obrigatorio: true }, { nome: 'Trás', obrigatorio: true }];
+    }
+    return raw.map((item: unknown) => {
+      if (typeof item === 'string') {
+        return { nome: item, obrigatorio: true };
+      }
+      const obj = item as { nome?: string; obrigatorio?: boolean };
+      return {
+        nome: obj.nome || '',
+        obrigatorio: obj.obrigatorio !== false,
+      };
+    }).filter(d => d.nome && String(d.nome).trim() !== '');
   }, [selo.documentos_evidencias]);
 
-  // Estado dinâmico para armazenar arquivos (imagens ou PDFs) por documento
+  // Chave normalizada para o backend (frente, tras, etc)
+  const getFieldName = (nome: string): string => {
+    const n = nome.toLowerCase().trim();
+    if (n === 'frente') return 'frente';
+    if (n === 'trás' || n === 'tras') return 'tras';
+    return n.replace(/\s+/g, '_');
+  };
+
+  // Estado dinâmico para armazenar arquivos por documento (chave = nome)
   const [documentFiles, setDocumentFiles] = useState<Record<string, FileUpload | null>>({});
   const [uploading, setUploading] = useState(false);
 
-  // Inicializar estado vazio para cada documento
   useEffect(() => {
-    const initialFiles: Record<string, FileUpload | null> = {};
-    requiredDocuments.forEach((doc) => {
-      initialFiles[doc] = null;
-    });
-    setDocumentFiles(initialFiles);
-  }, [requiredDocuments]); // Dependência estável (memoizada)
+    const initial: Record<string, FileUpload | null> = {};
+    documentItems.forEach((d) => { initial[d.nome] = null; });
+    setDocumentFiles(initial);
+  }, [documentItems]);
 
   const requestPermissions = async () => {
     try {
@@ -253,18 +269,18 @@ const SealAcquisitionScreen: React.FC = () => {
   };
 
   const handleContinue = async () => {
-    // Verificar se todos os documentos foram enviados
-    const missingDocuments: string[] = [];
-    requiredDocuments.forEach((doc) => {
-      if (!documentFiles[doc]) {
-        missingDocuments.push(doc);
+    // Verificar apenas documentos obrigatórios
+    const missingObrigatorios: string[] = [];
+    documentItems.forEach((doc) => {
+      if (doc.obrigatorio && !documentFiles[doc.nome]) {
+        missingObrigatorios.push(doc.nome);
       }
     });
 
-    if (missingDocuments.length > 0) {
+    if (missingObrigatorios.length > 0) {
       Alert.alert(
         'Atenção',
-        `Por favor, faça o upload dos seguintes documentos:\n${missingDocuments.join('\n')}`
+        `Por favor, faça o upload dos seguintes documentos obrigatórios:\n${missingObrigatorios.join('\n')}`
       );
       return;
     }
@@ -274,20 +290,14 @@ const SealAcquisitionScreen: React.FC = () => {
     try {
       const api = new ApiProvider();
       
-      // Criar FormData para upload
       const formData = new FormData();
       formData.append('selo_id', selo.id.toString());
       
-      // Adicionar cada documento ao FormData
-      requiredDocuments.forEach((docName) => {
-        const file = documentFiles[docName];
+      // Enviar apenas arquivos que foram anexados (obrigatórios ou opcionais)
+      documentItems.forEach((doc) => {
+        const file = documentFiles[doc.nome];
         if (file) {
-          // Normalizar nome do documento para o backend
-          // Se for "Frente" ou "Trás", usar os nomes originais para compatibilidade
-          const fieldName = docName.toLowerCase() === 'frente' ? 'frente' 
-            : docName.toLowerCase() === 'trás' || docName.toLowerCase() === 'tras' ? 'tras'
-            : docName.toLowerCase().replace(/\s+/g, '_'); // Substituir espaços por underscore
-          
+          const fieldName = getFieldName(doc.nome);
           const fileName = file.name || `${fieldName}_${Date.now()}.${file.isImage ? 'jpg' : 'pdf'}`;
           
           formData.append(fieldName, {
@@ -301,16 +311,16 @@ const SealAcquisitionScreen: React.FC = () => {
       if (__DEV__) {
         console.log('📤 FormData criado:', {
           selo_id: selo.id,
-          documents: requiredDocuments.map(doc => ({
-            name: doc,
-            hasFile: !!documentFiles[doc]
+          documents: documentItems.map(doc => ({
+            name: doc.nome,
+            obrigatorio: doc.obrigatorio,
+            hasFile: !!documentFiles[doc.nome]
           }))
         });
       }
 
-      // Fazer upload dos documentos
-      // Não definir Content-Type manualmente - axios faz isso automaticamente para FormData
-      const response = await api.post('selos/solicitar', formData);
+      // Fazer upload dos documentos (timeout aumentado via ApiProvider para FormData)
+      const response = await api.post('selos/solicitar', formData, { timeout: 120000 });
 
       if (response.success) {
         // Navegar para tela de pagamento
@@ -371,11 +381,13 @@ const SealAcquisitionScreen: React.FC = () => {
         <View style={styles.uploadSection}>
           <Text style={styles.sectionTitle}>Documentos Necessários</Text>
 
-          {requiredDocuments.map((docName, index) => {
-            const currentFile = documentFiles[docName];
+          {documentItems.map((doc, index) => {
+            const currentFile = documentFiles[doc.nome];
             return (
               <View key={index} style={styles.uploadCard}>
-                <Text style={styles.uploadLabel}>{docName} *</Text>
+                <Text style={styles.uploadLabel}>
+                  {doc.nome} {doc.obrigatorio ? '*' : '(opcional)'}
+                </Text>
                 {currentFile ? (
                   <View style={styles.filePreview}>
                     {currentFile.isImage ? (
@@ -394,7 +406,7 @@ const SealAcquisitionScreen: React.FC = () => {
                     )}
                     <TouchableOpacity
                       style={styles.removeButton}
-                      onPress={() => removeFile(docName)}
+                      onPress={() => removeFile(doc.nome)}
                     >
                       <SafeIcon name="close-circle" size={24} color={CustomColors.white} />
                     </TouchableOpacity>
@@ -403,8 +415,8 @@ const SealAcquisitionScreen: React.FC = () => {
                 <TouchableOpacity
                   style={styles.uploadButton}
                   onPress={() => {
-                    console.log(`📄 Botão clicado: ${docName}`);
-                    showFileTypePicker(docName);
+                    if (__DEV__) console.log(`📄 Botão clicado: ${doc.nome}`);
+                    showFileTypePicker(doc.nome);
                   }}
                   activeOpacity={0.7}
                 >
@@ -422,7 +434,7 @@ const SealAcquisitionScreen: React.FC = () => {
         <TouchableOpacity
           style={[styles.continueButton, uploading && styles.continueButtonDisabled]}
           onPress={handleContinue}
-          disabled={uploading || requiredDocuments.some(doc => !documentFiles[doc])}
+          disabled={uploading || documentItems.some(d => d.obrigatorio && !documentFiles[d.nome])}
         >
           {uploading ? (
             <ActivityIndicator color={CustomColors.activeColor} />

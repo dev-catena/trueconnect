@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\ContratoAtualizado;
 use App\Models\ClausulaTipoContrato;
 use App\Models\Contrato;
 use App\Models\ContratoClausula;
@@ -10,6 +11,7 @@ use App\Models\ContratoLog;
 use App\Models\ContratoUsuario;
 use App\Models\ContratoUsuarioClausula;
 use App\Models\ContratoUsuarioPergunta;
+use App\Models\ContratoAlteracao;
 use App\Models\Pergunta;
 use App\Models\User;
 use Carbon\Carbon;
@@ -36,7 +38,7 @@ class ContratoController extends Controller
                 ->pluck('contrato_id')
                 ->toArray();
 
-            $contratos = Contrato::with(['tipo', 'contratante'])
+            $contratos = Contrato::with(['tipo', 'contratante', 'participantes.usuario:id,nome_completo,email', 'alteracaoRescisao'])
                 ->where(function($query) use ($usuario) {
                     $query->where('contratante_id', $usuario->id)
                         ->orWhereHas('participantes', function($q) use ($usuario) {
@@ -49,25 +51,53 @@ class ContratoController extends Controller
                 ->orderByDesc('id')
                 ->get();
 
-            $contratosFormatados = $contratos->map(function($contrato) {
+            $contratosFormatados = $contratos->map(function($contrato) use ($usuario) {
+                $usuarioECriador = $usuario && (int) $contrato->contratante_id === (int) $usuario->id;
+                $statusExibicao = $contrato->status;
+                $alteracaoRescisao = $contrato->alteracaoRescisao;
+                if ($alteracaoRescisao) {
+                    $statusExibicao = 'Rescindido';
+                } else {
+                    $outraParteExcluiu = ContratoUsuario::withTrashed()
+                        ->where('contrato_id', $contrato->id)
+                        ->where('usuario_id', '!=', $usuario->id)
+                        ->whereNotNull('deleted_at')
+                        ->exists();
+                    if ($outraParteExcluiu) {
+                        $statusExibicao = 'Excluída pela outra parte';
+                    }
+                }
                 return [
                     'id' => $contrato->id,
                     'codigo' => $contrato->codigo,
                     'descricao' => $contrato->descricao,
-                    'status' => $contrato->status,
+                    'contratante_id' => $contrato->contratante_id,
+                    'usuario_e_criador' => $usuarioECriador,
+                    'status' => $statusExibicao,
                     'duracao' => $contrato->duracao,
                     'dt_inicio' => $contrato->dt_inicio,
                     'dt_fim' => $contrato->dt_fim,
                     'dt_prazo_assinatura' => $contrato->dt_prazo_assinatura,
                     'tipo' => $contrato->tipo ? [
                         'id' => $contrato->tipo->id,
-                        'nome' => $contrato->tipo->nome,
+                        'codigo' => $contrato->tipo->codigo,
                         'descricao' => $contrato->tipo->descricao,
                     ] : null,
                     'contratante' => $contrato->contratante ? [
                         'id' => $contrato->contratante->id,
                         'nome_completo' => $contrato->contratante->nome_completo,
                         'email' => $contrato->contratante->email,
+                    ] : null,
+                    'participantes' => $contrato->participantes->map(fn ($p) => [
+                        'usuario_id' => $p->usuario_id,
+                        'usuario' => $p->usuario ? [
+                            'id' => $p->usuario->id,
+                            'nome_completo' => $p->usuario->nome_completo,
+                        ] : null,
+                    ]),
+                    'alteracao_rescisao' => $alteracaoRescisao ? [
+                        'manifestacao' => $alteracaoRescisao->manifestacao,
+                        'created_at' => $alteracaoRescisao->created_at?->toIso8601String(),
                     ] : null,
                 ];
             });
@@ -154,9 +184,7 @@ class ContratoController extends Controller
         try {
             if (!$user->canCreateContract()) {
                 $limit = $user->getTotalContractsLimit();
-                $current = $user->contratosContratante()
-                    ->whereIn('status', ['Ativo', 'Pendente'])
-                    ->count();
+                $current = $user->getContratosAssinadosCount();
 
                 // Quando não há assinatura/plano com contratos incluídos,
                 // o limite calculado acaba sendo 0. Nesse caso, a mensagem
@@ -236,6 +264,13 @@ class ContratoController extends Controller
 
             DB::commit();
 
+            $contrato->load(['tipo:id,codigo,descricao', 'contratante:id,nome_completo,email', 'participantes:id,contrato_id,usuario_id']);
+            try {
+                event(new ContratoAtualizado($contrato, 'criado'));
+            } catch (\Illuminate\Broadcasting\BroadcastException $e) {
+                \Log::warning('Broadcast falhou (Reverb pode não estar rodando)', ['error' => $e->getMessage()]);
+            }
+
             return $this->ok('Contrato criado com sucesso.', $contrato->load([
                 'tipo:id,codigo,descricao',
                 'contratante:id,nome_completo,email'
@@ -259,7 +294,8 @@ class ContratoController extends Controller
             'tipo.perguntas:id,contrato_tipo_id,descricao,alternativas,tipo_alternativa',
             'contratante:id,nome_completo,email,CPF',
             'clausulasContrato.clausula:id,codigo,nome,descricao,sexual',
-            'participantes.usuario:id,nome_completo,email,CPF'
+            'participantes.usuario:id,nome_completo,email,CPF',
+            'alteracaoRescisao'
         ])->find($id);
 
         if (!$contrato) {
@@ -368,7 +404,10 @@ class ContratoController extends Controller
         // Verificar se o usuário atual pode assinar (todas as cláusulas coincidentes)
         $usuarioAtual = auth()->user();
         $podeAssinar = false;
-        if ($usuarioAtual) {
+        $prazoAssinaturaExpirado = $contrato->dt_prazo_assinatura
+            ? Carbon::parse($contrato->dt_prazo_assinatura, 'America/Sao_Paulo') < Carbon::now('America/Sao_Paulo')
+            : false;
+        if ($usuarioAtual && !$prazoAssinaturaExpirado) {
             $contratoUsuarioAtual = ContratoUsuario::where('contrato_id', $contrato->id)
                 ->where('usuario_id', $usuarioAtual->id)
                 ->first();
@@ -379,11 +418,30 @@ class ContratoController extends Controller
                           $contratoUsuarioAtual->aceito === null;
         }
 
+        $statusExibicao = $contrato->status;
+        $alteracaoRescisao = $contrato->alteracaoRescisao;
+        if ($alteracaoRescisao) {
+            $statusExibicao = 'Rescindido';
+        } elseif ($usuarioAtual) {
+            $outraParteExcluiu = ContratoUsuario::withTrashed()
+                ->where('contrato_id', $contrato->id)
+                ->where('usuario_id', '!=', $usuarioAtual->id)
+                ->whereNotNull('deleted_at')
+                ->exists();
+            if ($outraParteExcluiu) {
+                $statusExibicao = 'Excluída pela outra parte';
+            }
+        }
+
+        $usuarioECriador = $usuarioAtual && (int) $contrato->contratante_id === (int) $usuarioAtual->id;
+
         return $this->ok('OK', [
             'id' => $contrato->id,
             'codigo' => $contrato->codigo,
             'descricao' => $contrato->descricao,
-            'status' => $contrato->status,
+            'contratante_id' => $contrato->contratante_id,
+            'usuario_e_criador' => $usuarioECriador,
+            'status' => $statusExibicao,
             'duracao' => $contrato->duracao,
             'dt_inicio' => $contrato->dt_inicio,
             'dt_fim' => $contrato->dt_fim,
@@ -407,7 +465,11 @@ class ContratoController extends Controller
             'assinaturas' => $assinaturas,
             'todas_clausulas_coincidentes' => $todasClausulasCoincidentes,
             'clausulas_em_desacordo' => $clausulasEmDesacordo,
-            'pode_assinar' => $podeAssinar
+            'pode_assinar' => $podeAssinar,
+            'alteracao_rescisao' => $alteracaoRescisao ? [
+                'manifestacao' => $alteracaoRescisao->manifestacao,
+                'created_at' => $alteracaoRescisao->created_at?->toIso8601String(),
+            ] : null,
         ]);
     }
 
@@ -588,6 +650,69 @@ class ContratoController extends Controller
         ]);
     }
 
+    /**
+     * Remover um participante do contrato (antes da assinatura).
+     * Apenas o criador pode executar, e apenas enquanto o contrato estiver Pendente.
+     */
+    public function removerParticipante(Request $request, $id)
+    {
+        $usuario = auth()->user();
+        if (!$usuario) {
+            return $this->fail('Usuário não autenticado.', null, 401);
+        }
+
+        $validated = $request->validate([
+            'usuario_id' => 'required|integer|exists:users,id',
+        ]);
+
+        $contrato = Contrato::find($id);
+        if (!$contrato) {
+            return $this->fail('Contrato não encontrado', null, 404);
+        }
+
+        if ($contrato->contratante_id !== $usuario->id) {
+            return $this->fail('Apenas o criador do contrato pode remover participantes.', null, 403);
+        }
+
+        if ($contrato->status !== 'Pendente') {
+            return $this->fail('Só é possível remover participantes antes da assinatura do contrato.', null, 403);
+        }
+
+        $usuarioIdRemover = (int) $validated['usuario_id'];
+        if ($usuarioIdRemover === $contrato->contratante_id) {
+            return $this->fail('O criador do contrato não pode ser removido.', null, 403);
+        }
+
+        $contratoUsuario = ContratoUsuario::where('contrato_id', $id)
+            ->where('usuario_id', $usuarioIdRemover)
+            ->first();
+
+        if (!$contratoUsuario) {
+            return $this->fail('Participante não encontrado neste contrato.', null, 404);
+        }
+
+        try {
+            $contratoUsuario->forceDelete();
+
+            $userIdsParaNotificar = array_unique(array_merge(
+                [$contrato->contratante_id],
+                ContratoUsuario::where('contrato_id', $id)->pluck('usuario_id')->toArray(),
+                [$usuarioIdRemover]
+            ));
+            event(new ContratoAtualizado($contrato->fresh(), 'participante_removido', $userIdsParaNotificar));
+
+            return $this->ok('Participante removido do contrato com sucesso.');
+        } catch (\Exception $e) {
+            \Log::error('Erro ao remover participante: ' . $e->getMessage());
+            return $this->fail('Erro ao remover participante.', $e, 500);
+        }
+    }
+
+    /**
+     * Remove o contrato da lista do usuário (exclusão por usuário).
+     * O contrato permanece no sistema e CONTINUA abatendo no saldo de contratos do contratante.
+     * Contratos Ativo, Pendente ou Concluído podem ser removidos da lista.
+     */
     public function destroy($id)
     {
         try {
@@ -622,18 +747,53 @@ class ContratoController extends Controller
                 return $this->fail('Você não tem permissão para excluir este contrato.', null, 403);
             }
 
-            // Sempre excluir apenas para o usuário específico
-            // Se for contratante, criar ou atualizar a relação ContratoUsuario e fazer soft delete
-            // Se for participante, fazer soft delete da relação existente
+            // Contrato assinado (Ativo/Concluído) não pode ser cancelado nem removido
+            if (in_array($contrato->status, ['Ativo', 'Concluído'])) {
+                return $this->fail('Contrato assinado não pode ser cancelado ou removido.', null, 403);
+            }
+
+            // Se for contratante em contrato Pendente: cancelar para TODOS (excluir do contrato para todos os participantes)
+            // Caso contrário: excluir apenas para o usuário específico
+            if ($isContratante && $contrato->status === 'Pendente') {
+                // Coletar IDs para broadcast ANTES de soft-delete (participantes ficam vazios após delete)
+                $userIdsParaNotificar = array_unique(array_merge(
+                    [$contrato->contratante_id],
+                    ContratoUsuario::where('contrato_id', $id)->pluck('usuario_id')->toArray()
+                ));
+
+                // Cancelar contrato para todos - soft-delete de todas as relações ContratoUsuario
+                $todosParticipantes = ContratoUsuario::where('contrato_id', $id)->get();
+                foreach ($todosParticipantes as $cu) {
+                    if (!$cu->trashed()) {
+                        $cu->delete();
+                    }
+                }
+                // Garantir que o contratante também não verá mais (criar relação se não existir e soft-delete)
+                if (!$contratoUsuario && !$contratoUsuarioDeleted) {
+                    try {
+                        $contratoUsuario = ContratoUsuario::create([
+                            'contrato_id' => $id,
+                            'usuario_id' => $usuario->id,
+                            'aceito' => null,
+                        ]);
+                    } catch (\Exception $e) {
+                        \Log::error('Erro ao criar relação ContratoUsuario para cancelamento: ' . $e->getMessage());
+                    }
+                }
+                if ($contratoUsuario && !$contratoUsuario->trashed()) {
+                    $contratoUsuario->delete();
+                }
+                event(new ContratoAtualizado($contrato->fresh(), 'cancelado', $userIdsParaNotificar));
+                return $this->ok('Contrato cancelado com sucesso. Todas as partes foram removidas.');
+            }
+
+            // Exclusão apenas para o usuário específico
             if ($isContratante) {
-                // Contratante: criar relação se não existir e fazer soft delete
+                // Contratante (contrato já Ativo/Concluído): criar relação se não existir e fazer soft delete
                 if (!$contratoUsuario) {
-                    // Se já existe relação soft-deleted, não precisa fazer nada (já está excluído)
                     if ($contratoUsuarioDeleted) {
                         return $this->ok('Contrato já foi removido da sua lista anteriormente.');
                     }
-                    
-                    // Se não existe relação, criar nova e fazer soft delete
                     try {
                         $contratoUsuario = ContratoUsuario::create([
                             'contrato_id' => $id,
@@ -649,8 +809,6 @@ class ContratoController extends Controller
                         return $this->fail('Erro ao criar relação para exclusão: ' . $e->getMessage(), null, 500);
                     }
                 }
-                
-                // Fazer soft delete da relação
                 $contratoUsuario->delete();
                 return $this->ok('Contrato removido da sua lista com sucesso.');
             } else {
@@ -673,6 +831,72 @@ class ContratoController extends Controller
                 'trace' => $e->getTraceAsString()
             ]);
             return $this->fail('Erro ao excluir contrato.', null, 500);
+        }
+    }
+
+    /**
+     * Rescindir contrato: o contratante manifesta sua vontade de desistir.
+     * O CONTRATO NÃO É ALTERADO. Cria-se uma alteração contratual formal que registra
+     * a manifestação de vontade do contratante. Apenas o contratante pode executar.
+     */
+    public function rescind($id)
+    {
+        try {
+            $usuario = auth()->user();
+            if (!$usuario) {
+                return $this->fail('Usuário não autenticado.', null, 401);
+            }
+
+            $contrato = Contrato::find($id);
+            if (!$contrato) {
+                return $this->fail('Contrato não encontrado', null, 404);
+            }
+
+            if ($contrato->contratante_id !== $usuario->id) {
+                return $this->fail('Apenas o contratante pode rescindir o contrato.', null, 403);
+            }
+
+            if (!in_array($contrato->status, ['Ativo', 'Concluído'])) {
+                return $this->fail(
+                    'Só é possível rescindir contratos já assinados (Ativo ou Concluído). ' .
+                    'Para contratos pendentes, use cancelar.',
+                    null,
+                    403
+                );
+            }
+
+            if (ContratoAlteracao::where('contrato_id', $id)->where('tipo', 'rescindir')->exists()) {
+                return $this->fail('Este contrato já possui alteração contratual de rescisão registrada.', null, 409);
+            }
+
+            $manifestacao = sprintf(
+                'O CONTRATANTE, %s, manifesta expressamente sua vontade de RESCINDIR e DESISTIR do presente contrato, ' .
+                'encerrando os efeitos contratuais a partir desta data. Registrado em %s.',
+                $usuario->nome_completo ?? $usuario->email,
+                now('America/Sao_Paulo')->format('d/m/Y H:i')
+            );
+
+            ContratoAlteracao::create([
+                'contrato_id' => $id,
+                'usuario_id' => $usuario->id,
+                'tipo' => 'rescindir',
+                'manifestacao' => $manifestacao,
+            ]);
+
+            $userIdsParaNotificar = array_unique(array_merge(
+                [$contrato->contratante_id],
+                ContratoUsuario::where('contrato_id', $id)->pluck('usuario_id')->toArray()
+            ));
+            event(new ContratoAtualizado($contrato->fresh(), 'rescindido', $userIdsParaNotificar));
+
+            return $this->ok('Alteração contratual de rescisão registrada com sucesso. A manifestação de vontade do contratante foi documentada.');
+        } catch (\Exception $e) {
+            \Log::error('Erro ao rescindir contrato: ' . $e->getMessage(), [
+                'contrato_id' => $id,
+                'usuario_id' => auth()->id(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return $this->fail('Erro ao rescindir contrato.', null, 500);
         }
     }
 
@@ -735,6 +959,19 @@ class ContratoController extends Controller
             return $this->fail('Contrato não encontrado.', null, 404);
         }
 
+        // Bloquear assinatura se o prazo expirou
+        if ($contrato->status === 'Pendente' && $contrato->dt_prazo_assinatura) {
+            $prazoExpirado = Carbon::parse($contrato->dt_prazo_assinatura, 'America/Sao_Paulo') < Carbon::now('America/Sao_Paulo');
+            if ($prazoExpirado) {
+                return $this->fail('O prazo para assinatura do contrato expirou. Não é mais possível assinar.', null, 403);
+            }
+        }
+
+        // Bloquear se contrato já está Expirado
+        if ($contrato->status === 'Expirado') {
+            return $this->fail('Este contrato já expirou. Não é mais possível assinar.', null, 403);
+        }
+
         $contratoUsuario = ContratoUsuario::where('contrato_id', $contratoId)
             ->where('usuario_id', $usuarioId)
             ->first();
@@ -778,6 +1015,21 @@ class ContratoController extends Controller
                     'dt_fim' => $agora->copy()->addHours($duracao),
                     'status' => 'Ativo',
                 ]);
+            }
+            $contrato->refresh();
+            $contrato->load(['tipo:id,codigo,descricao', 'contratante:id,nome_completo,email', 'participantes:id,contrato_id,usuario_id']);
+            try {
+                event(new ContratoAtualizado($contrato, 'assinado'));
+            } catch (\Illuminate\Broadcasting\BroadcastException $e) {
+                \Log::warning('Broadcast falhou (Reverb pode não estar rodando)', ['error' => $e->getMessage()]);
+            }
+        } else {
+            $contrato->refresh();
+            $contrato->load(['tipo:id,codigo,descricao', 'contratante:id,nome_completo,email', 'participantes:id,contrato_id,usuario_id']);
+            try {
+                event(new ContratoAtualizado($contrato, 'atualizado'));
+            } catch (\Illuminate\Broadcasting\BroadcastException $e) {
+                \Log::warning('Broadcast falhou (Reverb pode não estar rodando)', ['error' => $e->getMessage()]);
             }
         }
 

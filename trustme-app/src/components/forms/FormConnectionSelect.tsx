@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Modal, FlatList, Image } from
 import { CustomColors } from '../../core/colors';
 import SafeIcon from '../SafeIcon';
 import { Connection, User } from '../../types';
+import { BACKEND_BASE_URL } from '../../utils/constants';
 
 interface FormConnectionSelectProps {
   label: string;
@@ -75,8 +76,7 @@ const FormConnectionSelect: React.FC<FormConnectionSelectProps> = ({
   const getPhotoUrl = (caminhoFoto?: string) => {
     if (!caminhoFoto) return null;
     if (caminhoFoto.startsWith('http')) return caminhoFoto;
-    const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
-    return BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
+    return BACKEND_BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
   };
 
   const renderConnectionItem = ({ item }: { item: { user: User; connection: Connection } }) => {

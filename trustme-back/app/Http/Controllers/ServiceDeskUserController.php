@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Subscription;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
 
 class ServiceDeskUserController extends Controller
 {
@@ -74,7 +73,8 @@ class ServiceDeskUserController extends Controller
         ]);
 
         $user = User::findOrFail($userId);
-        $user->password = Hash::make($request->password);
+        // Passar texto plano - o cast 'hashed' do model User aplica Hash::make automaticamente
+        $user->password = $request->password;
         $user->save();
 
         return response()->json([

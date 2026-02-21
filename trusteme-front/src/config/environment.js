@@ -1,47 +1,28 @@
-// Configuração de ambiente
+// Configuração de ambiente - 100% local (sem servidores externos)
 const ENV = {
-  // Desenvolvimento local - usa proxy do Vite
-  DEVELOPMENT: {
+  // Sempre local - usa proxy do Vite (backend em localhost:8000)
+  LOCAL: {
     API_BASE_URL: '/api',
-    STORAGE_BASE_URL: 'http://localhost:8001', // Backend serve storage (target do proxy)
-    APP_NAME: 'Trust-me (Dev)',
+    STORAGE_BASE_URL: 'http://localhost:8000',
+    APP_NAME: 'Trust-me (Local)',
   },
-  
-  // Produção - URL da Digital Ocean
-  PRODUCTION: {
-    API_BASE_URL: 'https://consentir.catenasystem.com.br/api',
-    STORAGE_BASE_URL: 'https://consentir.catenasystem.com.br',
-    APP_NAME: 'Trust-me',
-  },
-  
-  // Staging/Teste
-  STAGING: {
-    API_BASE_URL: 'https://staging.seu-dominio.com/api',
-    STORAGE_BASE_URL: 'https://staging.seu-dominio.com',
-    APP_NAME: 'Trust-me (Staging)',
-  }
 }
 
-// Detecta o ambiente automaticamente
+// 100% local - sempre usa configuração local
 const hostname = window.location.hostname
-const isProduction = hostname === 'consentir.catenasystem.com.br' || hostname.includes('catenasystem.com.br')
-const isStaging = hostname.includes('staging') && !isProduction
-const isDevelopment = !isProduction && !isStaging
-
-// Seleciona a configuração baseada no ambiente
-let currentEnv = ENV.DEVELOPMENT // Por padrão, sempre desenvolvimento local
-if (isProduction) {
-  currentEnv = ENV.PRODUCTION
-} else if (isStaging) {
-  currentEnv = ENV.STAGING
-}
+const currentEnv = ENV.LOCAL
+const isProduction = false
+const isStaging = false
 
 // URL base para arquivos estáticos (storage) - prioriza env, depois config
 const getStorageBaseUrl = () => {
   const envOverride = import.meta.env.VITE_STORAGE_BASE_URL
   if (envOverride) return envOverride
-  if (currentEnv.STORAGE_BASE_URL) return currentEnv.STORAGE_BASE_URL
   const apiUrl = currentEnv.API_BASE_URL
+  // Se API é relativa (/api), backend está no mesmo host com porta 8000
+  if (!apiUrl.startsWith('http')) {
+    return `${window.location.protocol}//${window.location.hostname}:8000`
+  }
   if (apiUrl.startsWith('http')) {
     try {
       const url = new URL(apiUrl)
@@ -53,6 +34,14 @@ const getStorageBaseUrl = () => {
   return window.location.origin
 }
 
+// Reverb (WebSocket) - host/port para conexão do Echo
+const getReverbConfig = () => ({
+  host: import.meta.env.VITE_REVERB_HOST || window.location.hostname,
+  port: Number(import.meta.env.VITE_REVERB_PORT) || 8080,
+  scheme: import.meta.env.VITE_REVERB_SCHEME || 'http',
+  appKey: import.meta.env.VITE_REVERB_APP_KEY || 'imxxjvrqkkqflvbcppeo',
+})
+
 // Configuração atual
 export const CONFIG = {
   API_BASE_URL: currentEnv.API_BASE_URL,
@@ -60,6 +49,7 @@ export const CONFIG = {
   APP_NAME: currentEnv.APP_NAME,
   IS_PRODUCTION: isProduction,
   IS_DEVELOPMENT: !isProduction,
+  REVERB: getReverbConfig(),
 }
 
 // Log da configuração atual (útil para debug)
@@ -67,7 +57,7 @@ console.log('%c🔧 CONFIGURAÇÃO DO AMBIENTE', 'background: #222; color: #bada
 console.log('🔧 Ambiente detectado:', {
   hostname: hostname,
   port: window.location.port,
-  environment: isProduction ? 'PRODUÇÃO' : isStaging ? 'STAGING' : 'DESENVOLVIMENTO',
+  environment: 'LOCAL (100% sem servidores externos)',
   apiUrl: CONFIG.API_BASE_URL,
   appName: CONFIG.APP_NAME,
   fullApiUrl: CONFIG.API_BASE_URL.startsWith('http') ? CONFIG.API_BASE_URL : window.location.origin + CONFIG.API_BASE_URL

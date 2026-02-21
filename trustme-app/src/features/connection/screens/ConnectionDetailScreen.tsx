@@ -8,6 +8,9 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Modal,
+  Dimensions,
+  Pressable,
 } from 'react-native';
 import { RouteProp, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -52,11 +55,12 @@ interface Props {
 const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
   const navigation = useNavigation<ConnectionDetailScreenNavigationProp>();
   const { connection: initialConnection } = route.params;
-  const { user, refreshUserData } = useUser();
+  const { user, refreshUserData, removeConnection } = useUser();
   const [isLoading, setIsLoading] = useState(false);
   const [allSeals, setAllSeals] = useState<Seal[]>([]);
   const [userSeals, setUserSeals] = useState<UserSealsResponse | null>(null);
   const [loadingSeals, setLoadingSeals] = useState(false);
+  const [photoModalVisible, setPhotoModalVisible] = useState(false);
 
   const otherUser =
     initialConnection.solicitante_id === user?.id
@@ -150,8 +154,8 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
   const getPhotoUrl = (caminhoFoto?: string) => {
     if (!caminhoFoto) return null;
     if (caminhoFoto.startsWith('http')) return caminhoFoto;
-    const BASE_URL = __DEV__ ? 'http://10.102.0.103:8001' : 'https://api-trustme.catenasystem.com.br';
-    return BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
+    const { BACKEND_BASE_URL } = require('../../../utils/constants');
+    return BACKEND_BASE_URL + (caminhoFoto.startsWith('/') ? caminhoFoto : '/' + caminhoFoto);
   };
 
   const photoUrl = getPhotoUrl(otherUser?.caminho_foto);
@@ -197,6 +201,7 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
             try {
               const api = new ApiProvider(true);
               await api.delete(`usuario/conexoes/${initialConnection.id}`);
+              removeConnection(initialConnection.id);
               Alert.alert('Sucesso', 'Conexão rejeitada');
               await refreshUserData();
               navigation.goBack();
@@ -225,6 +230,7 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
             try {
               const api = new ApiProvider(true);
               await api.delete(`usuario/conexoes/${initialConnection.id}`);
+              removeConnection(initialConnection.id);
               Alert.alert('Sucesso', 'Conexão removida');
               await refreshUserData();
               navigation.goBack();
@@ -244,7 +250,12 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
-            <View style={styles.avatar}>
+            <TouchableOpacity
+              style={styles.avatar}
+              onPress={() => photoUrl && setPhotoModalVisible(true)}
+              activeOpacity={photoUrl ? 0.8 : 1}
+              disabled={!photoUrl}
+            >
               {photoUrl ? (
                 <Image
                   source={{ uri: photoUrl }}
@@ -258,7 +269,7 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
                   <Text style={styles.avatarInitial}>{userInitial}</Text>
                 </View>
               )}
-            </View>
+            </TouchableOpacity>
             <View style={styles.headerNameBlock}>
               <Text style={styles.userName}>{userName}</Text>
               {isAccepted && (
@@ -289,13 +300,25 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
                       const seal = userSeal.selo;
                       const sealName = seal?.descricao || seal?.codigo || 'Selo';
                       return (
-                        <View key={userSeal.id} style={styles.sealItem}>
+                        <View key={`ativo-${userSeal.id}`} style={styles.sealItem}>
                           <SafeIcon name="star" size={14} color="#D4AF37" />
                           <Text style={styles.sealItemText} numberOfLines={1}>{sealName}</Text>
+                          <Text style={styles.sealItemBadge}>Concedido</Text>
                         </View>
                       );
                     })}
-                    {(userSeals?.ativos?.length || 0) === 0 && !loadingSeals && (
+                    {(userSeals?.pendentes || []).map((userSeal) => {
+                      const seal = userSeal.selo;
+                      const sealName = seal?.descricao || seal?.codigo || 'Selo';
+                      return (
+                        <View key={`pendente-${userSeal.id}`} style={styles.sealItem}>
+                          <SafeIcon name="time" size={14} color="#FF9800" />
+                          <Text style={styles.sealItemText} numberOfLines={1}>{sealName}</Text>
+                          <Text style={styles.sealItemBadgePendente}>Pendente</Text>
+                        </View>
+                      );
+                    })}
+                    {((userSeals?.ativos?.length || 0) + (userSeals?.pendentes?.length || 0)) === 0 && !loadingSeals && (
                       <Text style={styles.sealsEmpty}>Nenhum selo</Text>
                     )}
                   </View>
@@ -511,6 +534,22 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
           </View>
         )}
 
+        {isPending && isRequestedByMe && (
+          <View style={styles.actions}>
+            <TouchableOpacity
+              style={[styles.actionButton, styles.removeButton]}
+              onPress={handleRemove}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator color={CustomColors.white} />
+              ) : (
+                <Text style={styles.actionButtonText}>Cancelar solicitação</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
         {isAccepted && (
           <View style={styles.actions}>
             <TouchableOpacity
@@ -527,6 +566,28 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
           </View>
         )}
       </ScrollView>
+
+      <Modal
+        visible={photoModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPhotoModalVisible(false)}
+      >
+        <Pressable
+          style={styles.photoModalOverlay}
+          onPress={() => setPhotoModalVisible(false)}
+        >
+          <Pressable style={styles.photoModalContent} onPress={(e) => e.stopPropagation()}>
+            {photoUrl && (
+              <Image
+                source={{ uri: photoUrl }}
+                style={styles.photoModalImage}
+                resizeMode="contain"
+              />
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </CustomScaffold>
   );
 };
@@ -591,6 +652,22 @@ const styles = StyleSheet.create({
     color: CustomColors.black,
     flex: 1,
   },
+  sealItemBadge: {
+    fontSize: 10,
+    color: '#2E7D32',
+    backgroundColor: '#E8F5E9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  sealItemBadgePendente: {
+    fontSize: 10,
+    color: '#E65100',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
   sealsEmpty: {
     fontSize: 12,
     color: CustomColors.activeGreyed,
@@ -622,6 +699,22 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: 'bold',
     color: CustomColors.white,
+  },
+  photoModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoModalContent: {
+    width: Dimensions.get('window').width * 0.92,
+    height: Dimensions.get('window').height * 0.7,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoModalImage: {
+    width: '100%',
+    height: '100%',
   },
   userName: {
     fontSize: 18,

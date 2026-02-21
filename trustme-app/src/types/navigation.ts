@@ -36,6 +36,8 @@ export type HomeStackParamList = {
   SealAcquisition: { selo: any };
   Payment: { selo: any; requestId?: number | string };
   Plans: undefined;
+  MySeals: undefined;
+  MyPlans: undefined;
   Contracts: { initialFilter?: string };
   NewContract: undefined;
   ContractDetail: { contract: Contract };

@@ -47,6 +47,8 @@ const HomeStackNavigator = () => {
       <HomeStack.Screen name="SealAcquisition" component={SealAcquisitionScreen} />
       <HomeStack.Screen name="Payment" component={PaymentScreen} />
       <HomeStack.Screen name="Plans" component={PlansScreen} />
+      <HomeStack.Screen name="MySeals" component={MySealsScreen} />
+      <HomeStack.Screen name="MyPlans" component={MyPlansScreen} />
       <HomeStack.Screen name="Contracts" component={ContractsScreen} />
       <HomeStack.Screen name="NewContract" component={NewContractScreen} />
       <HomeStack.Screen name="ContractDetail" component={ContractDetailScreen} />

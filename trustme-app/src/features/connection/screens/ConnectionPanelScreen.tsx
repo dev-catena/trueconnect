@@ -34,35 +34,23 @@ const ConnectionPanelScreen: React.FC = () => {
 
   const filters = ['Todas', 'Pendentes', 'Aceitas', 'Aguardando'];
 
-  // TEMPORARIAMENTE DESABILITADO para evitar loops infinitos
-  // Atualizar dados automaticamente quando a tela volta ao foco
-  // useFocusEffect(
-  //   React.useCallback(() => {
-  //     // Atualizar conexões quando a tela volta ao foco
-  //     // Isso garante que se alguém aceitou uma conexão em outro dispositivo,
-  //     // os dados serão atualizados quando o usuário voltar para esta tela
-  //     if (user?.id) {
-  //       // Adicionar delay para evitar chamadas imediatas
-  //       const timeoutId = setTimeout(() => {
-  //         refreshUserData();
-  //       }, 500);
-  //       
-  //       // Configurar atualização periódica a cada 30 segundos enquanto a tela estiver em foco
-  //       // Aumentado de 10 para 30 segundos para reduzir carga no servidor
-  //       const intervalId = setInterval(() => {
-  //         if (user?.id) {
-  //           refreshUserData();
-  //         }
-  //       }, 30000); // 30 segundos
-
-  //       // Limpar o intervalo e timeout quando a tela perder o foco
-  //       return () => {
-  //         clearTimeout(timeoutId);
-  //         clearInterval(intervalId);
-  //       };
-  //     }
-  //   }, [refreshUserData, user?.id])
-  // );
+  // Refresh ao abrir a tela (fallback para Reverb) - debounce de 5s para evitar rate limit
+  const lastRefreshRef = React.useRef<number>(0);
+  const REFRESH_DEBOUNCE_MS = 5000;
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user?.id) {
+        const t = setTimeout(() => {
+          const now = Date.now();
+          if (now - lastRefreshRef.current > REFRESH_DEBOUNCE_MS) {
+            lastRefreshRef.current = now;
+            refreshUserData();
+          }
+        }, 400);
+        return () => clearTimeout(t);
+      }
+    }, [refreshUserData, user?.id])
+  );
 
   const filteredConnections = useMemo(() => {
     // Garantir que connections é um array válido
@@ -182,6 +170,7 @@ const ConnectionPanelScreen: React.FC = () => {
     return (
       <ConnectionTile
         connection={{ ...item, solicitante: otherUser }}
+        currentUserId={user?.id}
         onPress={() => navigation.navigate('ConnectionDetail', { connection: item })}
         onAccept={() => handleAccept(item.id)}
         onReject={() => handleReject(item.id)}

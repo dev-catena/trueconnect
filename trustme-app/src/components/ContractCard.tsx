@@ -5,9 +5,10 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { ContractsStackParamList, HomeStackParamList } from '../types/navigation';
 import { Contract } from '../types';
 import { CustomColors } from '../core/colors';
-import { formatDate } from '../utils/dateParser';
+import { formatDate, formatDateTime, formatDuracao } from '../utils/dateParser';
 import SafeIcon from './SafeIcon';
 import SignatureCountdown from './SignatureCountdown';
+import ContractValidityCountdown from './ContractValidityCountdown';
 
 interface ContractCardProps {
   contract: Contract;
@@ -35,6 +36,10 @@ const ContractCard: React.FC<ContractCardProps> = ({ contract, onPress }) => {
         return CustomColors.activeGreyed;
       case 'Expirado':
         return CustomColors.vividRed;
+      case 'Rescindido':
+        return '#B45309';
+      case 'Excluída pela outra parte':
+        return '#B45309';
       default:
         return CustomColors.activeGreyed;
     }
@@ -52,11 +57,25 @@ const ContractCard: React.FC<ContractCardProps> = ({ contract, onPress }) => {
       
       {contract.participantes && contract.participantes.length > 0 && (
         <View style={styles.participants}>
-          {contract.participantes.slice(0, 2).map((participant, index) => (
-            <Text key={index} style={styles.participantName}>
+          {contract.participantes.map((participant, index) => (
+            <Text key={participant.usuario_id ?? index} style={styles.participantName}>
               {participant.usuario?.nome_completo || 'Usuário'}
             </Text>
           ))}
+        </View>
+      )}
+
+      {contract.duracao ? (
+        <View style={styles.prazoRow}>
+          <Text style={styles.prazoLabel}>Prazo:</Text>
+          <Text style={styles.prazoValue}>{formatDuracao(contract.duracao)}</Text>
+        </View>
+      ) : null}
+
+      {contract.dt_inicio && (contract.status === 'Ativo' || contract.status === 'Concluído') && (
+        <View style={styles.prazoRow}>
+          <Text style={styles.prazoLabel}>Assinado em:</Text>
+          <Text style={styles.prazoValue}>{formatDateTime(contract.dt_inicio)}</Text>
         </View>
       )}
 
@@ -67,23 +86,20 @@ const ContractCard: React.FC<ContractCardProps> = ({ contract, onPress }) => {
             {contract.status}
           </Text>
         </View>
-        
+
         {contract.status === 'Pendente' && contract.dt_prazo_assinatura && (
           <SignatureCountdown
             dtPrazoAssinatura={contract.dt_prazo_assinatura}
             compact
           />
         )}
-        {(contract.status === 'Ativo' || contract.status === 'Pendente') && !isExpired && contract.dt_fim && !contract.dt_prazo_assinatura && (
+        {contract.status === 'Ativo' && contract.dt_fim && (
+          <ContractValidityCountdown dtFim={contract.dt_fim} compact />
+        )}
+        {contract.status === 'Pendente' && !contract.dt_prazo_assinatura && contract.dt_fim && (
           <View style={styles.timeContainer}>
-            <SafeIcon
-              name="clock"
-              size={16}
-              color={CustomColors.activeGreyed}
-            />
-            <Text style={styles.timeText}>
-              {formatDate(contract.dt_fim)}
-            </Text>
+            <SafeIcon name="clock" size={16} color={CustomColors.activeGreyed} />
+            <Text style={styles.timeText}>Até: {formatDate(contract.dt_fim)}</Text>
           </View>
         )}
       </View>
@@ -125,6 +141,21 @@ const styles = StyleSheet.create({
   participantName: {
     fontSize: 12,
     marginBottom: 4,
+  },
+  prazoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  prazoLabel: {
+    fontSize: 10,
+    color: CustomColors.activeGreyed,
+  },
+  prazoValue: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: CustomColors.black,
   },
   footer: {
     flexDirection: 'row',

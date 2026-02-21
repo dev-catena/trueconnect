@@ -1,20 +1,28 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Image } from 'react-native';
+import ProfileHeaderButton from '../../../components/ProfileHeaderButton';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { HomeStackParamList, RootStackParamList } from '../../../types/navigation';
+import { HomeStackParamList } from '../../../types/navigation';
 import { useUser } from '../../../core/context/UserContext';
 import { CustomColors } from '../../../core/colors';
 import SafeIcon from '../../../components/SafeIcon';
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
-type RootNavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 const HomeScreen: React.FC = () => {
   const navigation = useNavigation<HomeScreenNavigationProp>();
-  const rootNavigation = useNavigation<RootNavigationProp>();
-  const { user, contracts, connections } = useUser();
+  const { user, contracts, connections, refreshUserData } = useUser();
+
+  // Atualizar dados ao focar a tela (ex: selo aprovado na web, volta de Meus Selos)
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user?.id) {
+        refreshUserData();
+      }
+    }, [user?.id, refreshUserData])
+  );
 
   // Determinar o perfil do usuário
   const userRole = user?.role || 'user';
@@ -33,7 +41,7 @@ const HomeScreen: React.FC = () => {
     const pendingContracts = safeContracts.filter((c) => String(c.status) === 'Pendente').length;
     const activeConnections = safeConnections.filter((c) => c.aceito === true).length;
     const pendingConnections = safeConnections.filter((c) => c.aceito === false || !c.aceito).length;
-    const pendingSeals = Array.isArray(user?.sealsObtained) ? user.sealsObtained.filter((s: any) => s.status === 'pendente').length : 0;
+    const pendingSeals = Array.isArray(user?.sealsPendentes) ? user.sealsPendentes.length : 0;
 
     return {
       activeContracts,
@@ -44,12 +52,8 @@ const HomeScreen: React.FC = () => {
     };
   }, [contracts, connections, user, isAppUser]);
 
-  const handleProfilePress = () => {
-    rootNavigation.navigate('Profile');
-  };
-
   const handlePlansPress = () => {
-    rootNavigation.navigate('MyPlans');
+    navigation.navigate('MyPlans');
   };
 
   const handleConnectionsPress = () => {
@@ -57,7 +61,7 @@ const HomeScreen: React.FC = () => {
   };
 
   const handleSealsPress = () => {
-    rootNavigation.navigate('MySeals');
+    navigation.navigate('MySeals');
   };
 
   const handleContractsPress = () => {
@@ -102,9 +106,10 @@ const HomeScreen: React.FC = () => {
             </View>
             <Text style={styles.headerTitle}>TrueConnect</Text>
           </View>
-          <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
-            <SafeIcon name="profile" size={28} color={CustomColors.white} />
-          </TouchableOpacity>
+          <ProfileHeaderButton
+            user={user}
+            onPress={() => navigation.navigate('Profile')}
+          />
         </View>
       </View>
 
@@ -372,9 +377,6 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: CustomColors.white,
-  },
-  profileButton: {
-    padding: 4,
   },
   content: {
     flex: 1,

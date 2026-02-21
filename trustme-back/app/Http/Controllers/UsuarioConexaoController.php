@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Models\UserNotification;
 use App\Models\UsuarioConexao;
 use App\Events\ConexaoCriada;
 use App\Events\ConexaoAtualizada;
 use App\Events\ConexaoRemovida;
+use App\Events\DestinatarioSemConexoes;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -24,22 +26,17 @@ class UsuarioConexaoController extends Controller
 
         $usuario = Auth::user();
         
-        // Verificar limite de conexões (considerando plano + compras adicionais)
-        if (!$usuario->canCreateConnection()) {
-            $limit = $usuario->getTotalConnectionsLimit();
-            $current = UsuarioConexao::where(function($query) use ($usuario) {
-                $query->where('solicitante_id', $usuario->id)
-                      ->orWhere('destinatario_id', $usuario->id);
-            })
-            ->where('aceito', true)
-            ->whereNull('deleted_at')
-            ->count();
-            
+        // Verificar limite do solicitante (apenas conexões - pendentes + ativas)
+        $check = $usuario->canSendConnectionRequest();
+        if (!$check['can']) {
+            $current = $check['current'] ?? 0;
+            $limit = $check['limit'] ?? 0;
             return $this->fail(
-                "Você atingiu o limite de conexões ({$current}/{$limit}). " .
-                "Contrate mais conexões adicionais ou faça upgrade do seu plano.",
+                "Limite de conexões atingido ({$current}/{$limit}). " .
+                "Adquira mais conexões no app para continuar.",
                 null,
-                403
+                403,
+                ['block_reason' => $check['block_reason'] ?? null]
             );
         }
 
@@ -58,6 +55,28 @@ class UsuarioConexaoController extends Controller
         
         if ($destinatario->id === $usuario->id) {
             return $this->fail('Você não pode se conectar consigo mesmo.', null, 422);
+        }
+
+        // Verificar se o destinatário tem conexões disponíveis (ambos precisam ter slot)
+        if (!$destinatario->hasConnectionSlotAvailable()) {
+            event(new DestinatarioSemConexoes($usuario, $destinatario));
+            // Registrar notificação persistente para o destinatário ler depois
+            $msg = $usuario->nome_completo . ' quer se conectar com você, mas você precisa adquirir mais conexões no seu plano.';
+            UserNotification::create([
+                'user_id' => $destinatario->id,
+                'type' => 'conexao_sem_slots',
+                'title' => 'Conexão aguardando',
+                'message' => $msg,
+                'data' => ['solicitante_id' => $usuario->id, 'solicitante_nome' => $usuario->nome_completo],
+            ]);
+            $nomeDest = $destinatario->nome_completo ?? 'Este usuário';
+            return $this->fail(
+                "{$nomeDest} não possui conexões disponíveis e precisa adquirir mais no app. " .
+                "Ele foi notificado do seu interesse em se conectar.",
+                null,
+                403,
+                ['block_reason' => 'destinatario_sem_conexoes', 'destinatario_id' => $destinatario->id]
+            );
         }
 
         // Existe conexão pendente ou ativa, qualquer direção (excluindo soft deletes)
@@ -122,6 +141,20 @@ class UsuarioConexaoController extends Controller
         }
 
         if ($validated['aceito']) {
+            // Verificar limite do destinatário (já checado na solicitação; manter por segurança)
+            if (!$usuario->canCreateConnection()) {
+                $limit = $usuario->getTotalConnectionsLimit();
+                $current = $usuario->getConnectionsCount();
+                return $this->fail(
+                    "Limite de conexões atingido ({$current}/{$limit}). " .
+                    "Adquira mais conexões no app para aceitar.",
+                    null,
+                    403,
+                    ['block_reason' => 'conexoes']
+                );
+            }
+            // Ao aceitar, NÃO verificar limite do solicitante: a conexão já existe (pendente),
+            // o slot foi consumido quando ele enviou a solicitação. Só estamos atualizando aceito.
             $conexao->update(['aceito' => true]);
             $conexao->refresh();
             // Disparar evento de broadcast
@@ -167,6 +200,19 @@ class UsuarioConexaoController extends Controller
             return $this->fail('Esta conexão já foi aceita.', null, 422);
         }
 
+        // Verificar limite do destinatário
+        if (!$usuario->canCreateConnection()) {
+            $limit = $usuario->getTotalConnectionsLimit();
+            $current = $usuario->getConnectionsCount();
+            return $this->fail(
+                "Limite de conexões atingido ({$current}/{$limit}). " .
+                "Adquira mais conexões no app para aceitar.",
+                null,
+                403,
+                ['block_reason' => 'conexoes']
+            );
+        }
+        // Ao aceitar, NÃO verificar limite do solicitante: a conexão já existe (pendente).
         $conexao->update(['aceito' => true]);
         $conexao->refresh();
         // Disparar evento de broadcast
@@ -181,8 +227,11 @@ class UsuarioConexaoController extends Controller
     {
         try {
             $usuario = Auth::user();
+            if (!$usuario) {
+                return $this->fail('Usuário não autenticado.', null, 401);
+            }
 
-            $conexao = UsuarioConexao::where('id', $id)
+            $conexao = UsuarioConexao::where('id', (int) $id)
                 ->where(function ($query) use ($usuario) {
                     $query->where('solicitante_id', $usuario->id)
                         ->orWhere('destinatario_id', $usuario->id);
@@ -198,11 +247,17 @@ class UsuarioConexaoController extends Controller
             $destinatarioId = $conexao->destinatario_id;
             $conexaoId = $conexao->id;
             
-            $conexao->delete();
-            
-            // Disparar evento de broadcast
-            event(new ConexaoRemovida($conexaoId, $solicitanteId, $destinatarioId));
-            
+            // forceDelete para garantir que a conexão seja removida para ambos os usuários
+            // (soft delete poderia causar inconsistência em cenários de cache/ polling)
+            $conexao->forceDelete();
+
+            // Disparar evento de broadcast (não falhar a operação se Reverb/Redis estiver indisponível)
+            try {
+                event(new ConexaoRemovida($conexaoId, $solicitanteId, $destinatarioId));
+            } catch (\Throwable $broadcastEx) {
+                \Log::warning('Broadcast ConexaoRemovida falhou (conexão já excluída): ' . $broadcastEx->getMessage());
+            }
+
             return $this->ok('Conexão excluída com sucesso.');
         } catch (\Exception $e) {
             \Log::error('Erro ao excluir conexão: ' . $e->getMessage(), [

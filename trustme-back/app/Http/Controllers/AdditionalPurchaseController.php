@@ -17,7 +17,7 @@ class AdditionalPurchaseController extends Controller
     {
         $prices = \App\Models\AdditionalPurchasePrice::getActivePrices();
 
-        // Garantir que ambos os tipos existam com valores padrão se não estiverem configurados
+        // Garantir que contratos e conexões existam com valores padrão
         if (!isset($prices['contracts'])) {
             $prices['contracts'] = [
                 'unit_price' => 5.00,
@@ -102,8 +102,7 @@ class AdditionalPurchaseController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Ainda não há um valor ativo configurado para este tipo de compra. ' .
-                    'Verifique se os preços de contratos/conexões estão marcados como ativos na área administrativa ' .
-                    'ou entre em contato com o suporte para configurar os valores antes de tentar comprar.',
+                    'Verifique se os preços (contratos/conexões) estão ativos na área administrativa.',
             ], 400);
         }
 
@@ -209,45 +208,26 @@ class AdditionalPurchaseController extends Controller
         }
 
         $activeSubscription = $user->activeSubscription;
-        
+
         $planContractsLimit = $activeSubscription?->plan?->contracts_limit ?? 0;
-        $planConnectionsLimit = null; // Conexões não têm limite no plano, mas podemos adicionar no futuro
-        
+        $planConnectionsLimit = $activeSubscription?->plan?->connections_limit ?? null;
+
         $additionalContracts = AdditionalPurchase::getTotalAdditionalContracts($user->id);
         $additionalConnections = AdditionalPurchase::getTotalAdditionalConnections($user->id);
 
-        // Contar contratos ativos do usuário
-        $userContractsCount = $user->contratosContratante()
-            ->whereIn('status', ['Ativo', 'Pendente'])
-            ->count();
-
-        // Contar conexões ativas do usuário
-        $userConnectionsCount = \App\Models\UsuarioConexao::where(function($query) use ($user) {
-            $query->where('solicitante_id', $user->id)
-                  ->orWhere('destinatario_id', $user->id);
-        })
-        ->where('aceito', true)
-        ->whereNull('deleted_at')
-        ->count();
+        $userContractsCount = $user->getContratosAssinadosCount();
+        $userConnectionsCount = $user->getConnectionsCount(); // pendentes + ativas
 
         $totalContractsLimit = $planContractsLimit + $additionalContracts;
-        
-        // Para conexões: se o plano é ilimitado mas há compras adicionais, 
-        // o total_limit será apenas as compras adicionais
-        // Se não há compras adicionais, será null (ilimitado)
+
         if ($planConnectionsLimit !== null) {
             $totalConnectionsLimit = $planConnectionsLimit + $additionalConnections;
         } else {
-            // Plano ilimitado: se há compras adicionais, total = apenas as adicionais
-            // Se não há compras adicionais, total = null (ilimitado)
             $totalConnectionsLimit = $additionalConnections > 0 ? $additionalConnections : null;
         }
 
-        // Calcular available para conexões
-        // Se totalConnectionsLimit é null (ilimitado sem compras adicionais), available também é null
-        // Se totalConnectionsLimit tem valor (seja do plano ou apenas compras adicionais), calcular available
-        $connectionsAvailable = $totalConnectionsLimit !== null 
-            ? $totalConnectionsLimit - $userConnectionsCount 
+        $connectionsAvailable = $totalConnectionsLimit !== null
+            ? $totalConnectionsLimit - $userConnectionsCount
             : null;
 
         return response()->json([

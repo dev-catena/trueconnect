@@ -16,6 +16,7 @@ interface Seal {
   verificado: boolean;
   expira_em?: string;
   obtido_em?: string;
+  rejection_reason?: string;
   selo?: {
     id: number;
     codigo?: string;
@@ -132,6 +133,19 @@ const MySealsScreen: React.FC = () => {
               </View>
             </View>
             <View style={styles.sealDetails}>
+              {status === 'cancelados' && (
+                <View style={[styles.detailRow, styles.rejectionReasonBox]}>
+                  <SafeIcon name="alert-circle" size={16} color={CustomColors.vividRed} />
+                  <View style={styles.rejectionReasonContent}>
+                    <Text style={styles.rejectionReasonLabel}>Motivo da rejeição:</Text>
+                    <Text style={styles.rejectionReasonText}>
+                      {(seal.rejection_reason && String(seal.rejection_reason).trim())
+                        ? seal.rejection_reason
+                        : 'Não informado'}
+                    </Text>
+                  </View>
+                </View>
+              )}
               {seal.obtido_em && (
                 <View style={styles.detailRow}>
                   <SafeIcon name="calendar" size={16} color={CustomColors.activeGreyed} />
@@ -437,6 +451,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: CustomColors.activeGreyed,
     marginLeft: 8,
+  },
+  rejectionReasonBox: {
+    alignItems: 'flex-start',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: CustomColors.vividRed,
+  },
+  rejectionReasonContent: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  rejectionReasonLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: CustomColors.vividRed,
+    marginBottom: 4,
+  },
+  rejectionReasonText: {
+    fontSize: 14,
+    color: '#991B1B',
   },
 });
 

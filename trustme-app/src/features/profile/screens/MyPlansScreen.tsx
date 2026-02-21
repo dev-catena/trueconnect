@@ -174,7 +174,6 @@ const MyPlansScreen: React.FC = () => {
   };
 
   const handlePurchaseAdditional = (type: 'contracts' | 'connections') => {
-    // Navegar diretamente para a tela de quantidade
     navigation.navigate('AdditionalPurchaseQuantity', { type });
   };
 
@@ -320,10 +319,10 @@ const MyPlansScreen: React.FC = () => {
                           <View style={styles.limitDetails}>
                             <View style={styles.limitRow}>
                               <Text style={styles.limitDetailText}>
-                                Do plano: {availableLimits.contracts.plan_limit !== null ? availableLimits.contracts.plan_limit : 'Ilimitado'}
+                                Do plano: {availableLimits.contracts?.plan_limit != null ? availableLimits.contracts.plan_limit : 'Ilimitado'}
                               </Text>
                             </View>
-                            {availableLimits.contracts.additional > 0 && (
+                            {(availableLimits.contracts?.additional ?? 0) > 0 && (
                               <View style={styles.limitRow}>
                                 <Text style={styles.limitDetailText}>
                                   Compras adicionais: +{availableLimits.contracts.additional}
@@ -332,15 +331,15 @@ const MyPlansScreen: React.FC = () => {
                             )}
                             <View style={styles.limitRow}>
                               <Text style={styles.limitTotalText}>
-                                Total disponível: {availableLimits.contracts.total_limit !== null ? availableLimits.contracts.total_limit : 'Ilimitado'}
+                                Total: {availableLimits.contracts?.total_limit != null ? availableLimits.contracts.total_limit : 'Ilimitado'}
                               </Text>
                             </View>
                             <View style={styles.limitRow}>
                               <Text style={styles.limitUsedText}>
-                                Utilizados: {availableLimits.contracts.used}
+                                Utilizados: {availableLimits.contracts?.used ?? 0}
                               </Text>
                             </View>
-                            {availableLimits.contracts.available !== null && (
+                            {availableLimits.contracts?.available != null && (
                               <View style={styles.limitRow}>
                                 <Text style={[styles.limitAvailableText, availableLimits.contracts.available === 0 && styles.limitAvailableTextZero]}>
                                   Disponíveis: {availableLimits.contracts.available}
@@ -359,10 +358,10 @@ const MyPlansScreen: React.FC = () => {
                           <View style={styles.limitDetails}>
                             <View style={styles.limitRow}>
                               <Text style={styles.limitDetailText}>
-                                Do plano: {availableLimits.connections.plan_limit !== null ? availableLimits.connections.plan_limit : 'Ilimitado'}
+                                Do plano: {availableLimits.connections?.plan_limit != null ? availableLimits.connections.plan_limit : 'Ilimitado'}
                               </Text>
                             </View>
-                            {availableLimits.connections.additional > 0 && (
+                            {(availableLimits.connections?.additional ?? 0) > 0 && (
                               <View style={styles.limitRow}>
                                 <Text style={styles.limitDetailText}>
                                   Compras adicionais: +{availableLimits.connections.additional}
@@ -371,15 +370,15 @@ const MyPlansScreen: React.FC = () => {
                             )}
                             <View style={styles.limitRow}>
                               <Text style={styles.limitTotalText}>
-                                Total disponível: {availableLimits.connections.total_limit !== null ? availableLimits.connections.total_limit : 'Ilimitado'}
+                                Total: {availableLimits.connections?.total_limit != null ? availableLimits.connections.total_limit : 'Ilimitado'}
                               </Text>
                             </View>
                             <View style={styles.limitRow}>
                               <Text style={styles.limitUsedText}>
-                                Utilizadas: {availableLimits.connections.used}
+                                Utilizadas: {availableLimits.connections?.used ?? 0}
                               </Text>
                             </View>
-                            {availableLimits.connections.available !== null && (
+                            {availableLimits.connections?.available != null && (
                               <View style={styles.limitRow}>
                                 <Text style={[styles.limitAvailableText, availableLimits.connections.available === 0 && styles.limitAvailableTextZero]}>
                                   Disponíveis: {availableLimits.connections.available}
@@ -392,24 +391,26 @@ const MyPlansScreen: React.FC = () => {
                     </View>
                   )}
 
-                  {/* Botões para comprar mais */}
+                  {/* Cards para comprar mais - um abaixo do outro */}
                   {status === 'active' && (
                     <View style={styles.additionalPurchaseSection}>
                       <Text style={styles.additionalPurchaseTitle}>Comprar Mais:</Text>
-                      <View style={styles.additionalPurchaseButtons}>
+                      <View style={styles.additionalPurchaseCards}>
                         <TouchableOpacity
-                          style={[styles.additionalPurchaseButton, styles.contractsButton]}
+                          style={[styles.additionalPurchaseCard, styles.contractsButton]}
                           onPress={() => handlePurchaseAdditional('contracts')}
+                          activeOpacity={0.8}
                         >
-                          <SafeIcon name="document-text" size={20} color={CustomColors.white} />
-                          <Text style={styles.additionalPurchaseButtonText}>+ Contratos</Text>
+                          <SafeIcon name="document-text" size={24} color={CustomColors.white} />
+                          <Text style={styles.additionalPurchaseCardText}>+ Contratos</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          style={[styles.additionalPurchaseButton, styles.connectionsButton]}
+                          style={[styles.additionalPurchaseCard, styles.connectionsButton]}
                           onPress={() => handlePurchaseAdditional('connections')}
+                          activeOpacity={0.8}
                         >
-                          <SafeIcon name="people" size={20} color={CustomColors.white} />
-                          <Text style={styles.additionalPurchaseButtonText}>+ Conexões</Text>
+                          <SafeIcon name="people" size={24} color={CustomColors.white} />
+                          <Text style={styles.additionalPurchaseCardText}>+ Conexões</Text>
                         </TouchableOpacity>
                       </View>
                     </View>
@@ -610,18 +611,17 @@ const styles = StyleSheet.create({
     color: CustomColors.black,
     marginBottom: 12,
   },
-  additionalPurchaseButtons: {
-    flexDirection: 'row',
+  additionalPurchaseCards: {
+    flexDirection: 'column',
     gap: 12,
   },
-  additionalPurchaseButton: {
-    flex: 1,
+  additionalPurchaseCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
+    padding: 16,
     borderRadius: 8,
-    gap: 8,
+    gap: 12,
   },
   contractsButton: {
     backgroundColor: CustomColors.activeColor,
@@ -629,9 +629,9 @@ const styles = StyleSheet.create({
   connectionsButton: {
     backgroundColor: CustomColors.successGreen,
   },
-  additionalPurchaseButtonText: {
+  additionalPurchaseCardText: {
     color: CustomColors.white,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
   },
   limitsSection: {
@@ -647,15 +647,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   limitsRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 12,
   },
   limitCard: {
-    flex: 1,
+    width: '100%',
     backgroundColor: CustomColors.backgroundPrimaryColor,
     borderRadius: 8,
     padding: 12,
-    marginBottom: 12,
+    marginBottom: 4,
   },
   limitHeader: {
     flexDirection: 'row',

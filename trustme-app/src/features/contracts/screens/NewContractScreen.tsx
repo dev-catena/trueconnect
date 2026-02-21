@@ -15,7 +15,8 @@ import { CustomColors } from '../../../core/colors';
 import CustomScaffold from '../../../components/CustomScaffold';
 import HeaderLine from '../../../components/HeaderLine';
 import FormSelect from '../../../components/forms/FormSelect';
-import FormConnectionSelect from '../../../components/forms/FormConnectionSelect';
+import FormInput from '../../../components/forms/FormInput';
+import FormConnectionSelectMulti from '../../../components/forms/FormConnectionSelectMulti';
 import { useUser } from '../../../core/context/UserContext';
 import { User, ContractType, Connection } from '../../../types';
 import ApiProvider from '../../../core/api/ApiProvider';
@@ -26,10 +27,13 @@ type NewContractScreenNavigationProp = NativeStackNavigationProp<
   'NewContract'
 >;
 
+type ValidityUnit = 'horas' | 'dias' | 'meses';
+
 interface NewContractFormData {
-  stakeHolderId: number | null;
+  stakeHolderIds: number[];
   contractTypeId: number | null;
-  validity: number; // Duração em horas (1, 2, 6 ou 24)
+  validityValue: string; // Valor numérico livre
+  validityUnit: ValidityUnit;
 }
 
 const NewContractScreen: React.FC = () => {
@@ -40,30 +44,23 @@ const NewContractScreen: React.FC = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const [formData, setFormData] = useState<NewContractFormData>({
-    stakeHolderId: null,
+    stakeHolderIds: [],
     contractTypeId: null,
-    validity: 24, // Valor padrão: 24 horas
+    validityValue: '24',
+    validityUnit: 'horas',
   });
 
-  // Opções predefinidas de duração do contrato
-  const durationOptions = [
-    { label: '1 hora', value: 1 },
-    { label: '2 horas', value: 2 },
-    { label: '6 horas', value: 6 },
-    { label: '24 horas', value: 24 },
+  const validityUnitOptions: { label: string; value: ValidityUnit }[] = [
+    { label: 'Horas', value: 'horas' },
+    { label: 'Dias', value: 'dias' },
+    { label: 'Meses', value: 'meses' },
   ];
   const [defaultClauses, setDefaultClauses] = useState<number[]>([]);
 
   useEffect(() => {
     loadContractTypes();
   }, []);
-
-  // Atualizar conexões quando a tela é montada para garantir dados atualizados
-  useEffect(() => {
-    if (user?.id) {
-      refreshUserData();
-    }
-  }, [user?.id]);
+  // Conexões vêm do UserContext (carregado no app + WebSocket) - evitar refreshUserData aqui para não causar loop
 
   // Log quando contractTypes mudar
   useEffect(() => {
@@ -192,17 +189,34 @@ const NewContractScreen: React.FC = () => {
     })));
   }
 
+  const validityToHours = (): number => {
+    const v = parseFloat(formData.validityValue?.replace(',', '.') || '0');
+    const n = Math.floor(v);
+    if (n <= 0) return 0;
+    switch (formData.validityUnit) {
+      case 'horas':
+        return n;
+      case 'dias':
+        return n * 24;
+      case 'meses':
+        return n * 24 * 30;
+      default:
+        return n;
+    }
+  };
+
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!formData.stakeHolderId) {
-      newErrors.stakeHolderId = 'Selecione uma parte interessada';
+    if (!formData.stakeHolderIds || formData.stakeHolderIds.length === 0) {
+      newErrors.stakeHolderIds = 'Selecione pelo menos uma parte interessada';
     }
     if (!formData.contractTypeId) {
       newErrors.contractTypeId = 'Selecione um tipo de contrato';
     }
-    if (!formData.validity || formData.validity <= 0) {
-      newErrors.validity = 'Selecione a duração do contrato';
+    const hours = validityToHours();
+    if (!hours || hours <= 0) {
+      newErrors.validity = 'Informe a duração do contrato (número maior que zero)';
     }
 
     setErrors(newErrors);
@@ -222,9 +236,9 @@ const NewContractScreen: React.FC = () => {
       // Por enquanto, vamos enviar apenas o participante e deixar o backend criar as cláusulas padrão
       const response = await api.post('contrato/gravar', {
         contratante_id: user?.id,
-        participantes: formData.stakeHolderId ? [formData.stakeHolderId] : [],
+        participantes: formData.stakeHolderIds || [],
         contrato_tipo_id: formData.contractTypeId,
-        duracao: formData.validity,
+        duracao: validityToHours(),
         // dt_inicio e dt_fim serão calculados pelo backend quando o contrato for assinado
         clausulas: defaultClauses.length > 0 ? defaultClauses : [], // Cláusulas padrão do tipo de contrato
       });
@@ -250,15 +264,6 @@ const NewContractScreen: React.FC = () => {
   };
 
   const selectedContractType = contractTypes.find((t) => t.id === formData.contractTypeId);
-  
-  // Encontrar o usuário selecionado a partir das conexões
-  const selectedConnection = acceptedConnections.find((conn) => {
-    const otherUser = conn.solicitante_id === user?.id ? conn.destinatario : conn.solicitante;
-    return otherUser?.id === formData.stakeHolderId;
-  });
-  const selectedStakeHolder = selectedConnection 
-    ? (selectedConnection.solicitante_id === user?.id ? selectedConnection.destinatario : selectedConnection.solicitante)
-    : undefined;
 
   return (
     <CustomScaffold 
@@ -269,15 +274,15 @@ const NewContractScreen: React.FC = () => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <HeaderLine title="Criação de Contrato" icon="document-text" />
 
-        <FormConnectionSelect
-          label="Parte Interessada"
-          value={formData.stakeHolderId || undefined}
+        <FormConnectionSelectMulti
+          label="Partes Interessadas"
+          value={formData.stakeHolderIds}
           connections={acceptedConnections}
           currentUserId={user?.id}
-          onChange={(userId) => setFormData({ ...formData, stakeHolderId: userId })}
-          error={errors.stakeHolderId}
+          onChange={(userIds) => setFormData({ ...formData, stakeHolderIds: userIds })}
+          error={errors.stakeHolderIds}
           required
-          placeholder="Selecione uma conexão ativa"
+          placeholder="Selecione as partes interessadas (conexões ativas)"
         />
 
         {contractTypes.length > 0 ? (
@@ -299,15 +304,28 @@ const NewContractScreen: React.FC = () => {
           </View>
         )}
 
-        <FormSelect
-          label="Duração do Contrato"
-          value={formData.validity || undefined}
-          options={durationOptions}
-          onChange={(value) => setFormData({ ...formData, validity: value })}
-          error={errors.validity}
-          required
-          placeholder="Selecione a duração"
-        />
+        <View style={styles.validityRow}>
+          <View style={styles.validityInputWrap}>
+            <FormInput
+              label="Duração do Contrato"
+              value={formData.validityValue}
+              onChangeText={(text) => setFormData({ ...formData, validityValue: text.replace(/[^0-9,]/g, '') })}
+              keyboardType="numeric"
+              placeholder="Ex: 24"
+              error={errors.validity}
+              required
+            />
+          </View>
+          <View style={styles.validityUnitWrap}>
+            <FormSelect
+              label="Unidade"
+              value={formData.validityUnit}
+              options={validityUnitOptions}
+              onChange={(value) => setFormData({ ...formData, validityUnit: value as ValidityUnit })}
+              placeholder="Unidade"
+            />
+          </View>
+        </View>
         
         <View style={styles.helperTextContainer}>
           <Text style={styles.helperText}>
@@ -386,6 +404,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: CustomColors.activeGreyed,
     textAlign: 'center',
+  },
+  validityRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  validityInputWrap: {
+    flex: 1,
+  },
+  validityUnitWrap: {
+    flex: 1,
   },
   helperTextContainer: {
     marginTop: -8,

@@ -132,7 +132,7 @@ cd ..
 
 ## 🔗 Backend
 
-Certifique-se de que o backend está rodando na porta 8001:
+Certifique-se de que o backend está rodando na porta 8000:
 ```bash
 cd ../trustme-back
 ./start-server.sh
@@ -141,21 +141,20 @@ cd ../trustme-back
 ## 📱 Configuração do Dispositivo
 
 ### Android Emulator
-- O app usará `localhost:8001` automaticamente
-- Se não funcionar, altere no `ApiProvider.ts` para `10.0.2.2:8001`
+- O app usará `localhost:8000` automaticamente
+- Se não funcionar, altere API_HOST em `src/utils/constants.ts` para `10.0.2.2`
 
 ### iOS Simulator
-- O app usará `localhost:8001` automaticamente
+- O app usará `localhost:8000` automaticamente
 
 ### Dispositivo Físico
 - Você precisará usar o IP da sua máquina
-- Exemplo: `192.168.1.100:8001`
-- Atualize no `ApiProvider.ts`
+- Atualize API_HOST em `src/utils/constants.ts`
 
 ## ✅ Checklist
 
 - [ ] Dependências instaladas (`npm install`)
-- [ ] Backend rodando na porta 8001
+- [ ] Backend rodando na porta 8000
 - [ ] Metro Bundler iniciado (`npm start`)
 - [ ] Emulador/dispositivo conectado
 - [ ] App executado (`npm run android` ou `npm run ios`)

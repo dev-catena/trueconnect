@@ -22,6 +22,8 @@ export interface User {
   endereco_numero?: string;
   complemento?: string;
   sealsObtained?: Seal[];
+  /** Selos solicitados e ainda pendentes de avaliação (aparecem no card "Selos pendentes" da Home) */
+  sealsPendentes?: Seal[];
 }
 
 // Seal Types
@@ -52,6 +54,8 @@ export interface Contract {
   dt_fim: string;
   dt_prazo_assinatura?: string | null;
   contratante_id: number;
+  /** Definido pelo backend - evita inconsistências quando o usuário é participante */
+  usuario_e_criador?: boolean;
   contrato_tipo_id: number;
   tipo?: ContractType;
   contratante?: User;
@@ -61,6 +65,10 @@ export interface Contract {
   todas_clausulas_coincidentes?: boolean;
   clausulas_em_desacordo?: number[];
   pode_assinar?: boolean;
+  alteracao_rescisao?: {
+    manifestacao: string;
+    created_at?: string;
+  } | null;
 }
 
 export interface ContractType {

@@ -1,23 +1,22 @@
-# ✅ Configuração da Porta 8001 - Resumo
+# ✅ Configuração da Porta 8000 - Resumo
 
 ## Status: ✅ CONCLUÍDO
 
 ### Backend Laravel
-- ✅ **Porta**: 8001
-- ✅ **URL**: `http://localhost:8001`
-- ✅ **Status**: Rodando (PID: verificar com `lsof -i :8001`)
-- ✅ **Script**: `trustme-back/start-server.sh` criado
+- ✅ **Porta**: 8000
+- ✅ **URL**: `http://localhost:8000`
+- ✅ **Status**: Rodando (PID: verificar com `lsof -i :8000`)
+- ✅ **Script**: `trustme-back/start-server.sh`
 
 ### Frontend Web (Vue.js)
-- ✅ **Proxy Vite**: Configurado para `http://localhost:8001`
+- ✅ **Proxy Vite**: Configurado para `http://localhost:8000`
 - ✅ **Arquivo**: `trusteme-front/vite.config.js`
-- ✅ **Comportamento**: Requisições para `/api` são redirecionadas para `http://localhost:8001/api`
+- ✅ **Comportamento**: Requisições para `/api` são redirecionadas para `http://localhost:8000/api`
 
 ### App React Native
-- ✅ **Desenvolvimento**: `http://localhost:8001/api`
-- ✅ **Produção**: `https://api-trustme.catenasystem.com.br/api`
-- ✅ **Arquivo**: `trustme-app/src/core/api/ApiProvider.ts`
-- ✅ **Detecção**: Automática via `__DEV__`
+- ✅ **Arquivo**: `trustme-app/src/utils/constants.ts`
+- ✅ **API_HOST**: 10.102.0.103 (dispositivo) ou 10.0.2.2 (emulador Android)
+- ✅ **API_PORT**: 8000
 
 ## 🚀 Como Usar
 
@@ -26,7 +25,7 @@
 cd trustme-back
 ./start-server.sh
 # ou
-php artisan serve --host=0.0.0.0 --port=8001
+php artisan serve --host=0.0.0.0 --port=8000
 ```
 
 ### 2. Iniciar o Frontend Web
@@ -47,22 +46,22 @@ npm run android  # ou npm run ios
 ## 📝 Notas Importantes
 
 ### Android Emulator
-Se estiver usando emulador Android, você pode precisar alterar no `ApiProvider.ts`:
+Se estiver usando emulador Android, altere em `trustme-app/src/utils/constants.ts`:
 ```typescript
-return '10.0.2.2:8001'; // Em vez de 'localhost:8001'
+export const API_HOST = '10.0.2.2'; // Emulador Android
 ```
 
 ### Dispositivo Físico
 Para testar em dispositivo físico:
 1. Descubra o IP da sua máquina: `ip addr show` ou `ifconfig`
-2. Atualize o HOST no `ApiProvider.ts` para usar esse IP
-3. Exemplo: `192.168.1.100:8001`
+2. Atualize API_HOST em `trustme-app/src/utils/constants.ts` para usar esse IP
+3. Exemplo: API_HOST = '192.168.1.100'
 
 ## 🔍 Verificar se está funcionando
 
 ### Backend
 ```bash
-curl http://localhost:8001/api
+curl http://localhost:8000/api
 ```
 
 ### Frontend Web
@@ -73,7 +72,7 @@ Verifique os logs do React Native para ver a URL base configurada
 
 ## 📚 Documentação Completa
 
-Veja `PORTA_8001_CONFIG.md` para documentação detalhada.
+Backend, frontend web e app usam exclusivamente a porta 8000.
 
 
 

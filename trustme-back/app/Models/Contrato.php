@@ -49,6 +49,16 @@ class Contrato extends Model
         return $this->hasMany(ContratoLog::class, 'contrato_id');
     }
 
+    public function alteracoes()
+    {
+        return $this->hasMany(ContratoAlteracao::class, 'contrato_id');
+    }
+
+    public function alteracaoRescisao()
+    {
+        return $this->hasOne(ContratoAlteracao::class, 'contrato_id')->where('tipo', 'rescindir');
+    }
+
     public function usuarios()
     {
         return $this->belongsToMany(User::class, 'contrato_usuarios', 'contrato_id', 'usuario_id')

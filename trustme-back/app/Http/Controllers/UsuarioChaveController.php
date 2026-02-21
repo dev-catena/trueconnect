@@ -98,7 +98,7 @@ class UsuarioChaveController extends Controller
             }
 
             $usuario->update([
-                'password' => Hash::make($request->input('new_password'))
+                'password' => $request->input('new_password') // Cast 'hashed' no model aplica Hash::make automaticamente
             ]);
 
             $chave->delete();
