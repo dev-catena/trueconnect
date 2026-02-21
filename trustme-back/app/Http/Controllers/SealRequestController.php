@@ -62,7 +62,9 @@ class SealRequestController extends Controller
                         'documents_count' => $req->documents_count,
                         'created_at' => $req->created_at,
                         'reviewed_at' => $req->reviewed_at,
-                        'rejection_reason' => $req->rejection_reason
+                        'rejection_reason' => $req->rejection_reason,
+                        'analyst_feedback' => $req->analyst_feedback,
+                        'analyst_feedback_at' => $req->analyst_feedback_at,
                     ];
                 })->values()
             ];
@@ -135,6 +137,10 @@ class SealRequestController extends Controller
                 ],
                 'status' => $request->status,
                 'notes' => $request->notes,
+                'analyst_feedback' => $request->analyst_feedback,
+                'analyst_feedback_at' => $request->analyst_feedback_at,
+                'user_response' => $request->user_response,
+                'user_response_at' => $request->user_response_at?->toIso8601String(),
                 'documents' => $request->documents->map(function ($doc) {
                     return [
                         'id' => $doc->id,
@@ -180,6 +186,9 @@ class SealRequestController extends Controller
 
         SealRequestAtualizado::dispatch($sealRequest->fresh(), 'aprovada');
 
+        // Remover UsuarioSelo legado para evitar duplicata (ativo via UserSeal + pendente via UsuarioSelo)
+        $this->limparUsuarioSeloLegado($sealRequest->user_id, $sealRequest->seal_type_id);
+
         return response()->json([
             'success' => true,
             'message' => 'Solicitação aprovada com sucesso'
@@ -217,6 +226,38 @@ class SealRequestController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Solicitação rejeitada com sucesso'
+        ]);
+    }
+
+    /**
+     * Pedir mais informações ao solicitante. O selo continua pendente; o solicitante pode complementar a documentação.
+     */
+    public function requestMoreInfo(Request $request, $id)
+    {
+        $request->validate([
+            'feedback' => 'required|string|max:2000',
+        ]);
+
+        $sealRequest = SealRequest::findOrFail($id);
+
+        if (!in_array($sealRequest->status, ['pending', 'under_review'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Apenas solicitações pendentes ou em revisão podem ter informações solicitadas.',
+            ], 400);
+        }
+
+        $sealRequest->update([
+            'analyst_feedback' => $request->feedback,
+            'analyst_feedback_at' => now(),
+            'status' => 'under_review', // Garantir que permaneça em análise
+        ]);
+
+        SealRequestAtualizado::dispatch($sealRequest->fresh(), 'informacoes_solicitadas');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Solicitação de informações enviada. O solicitante será notificado e poderá complementar a documentação.',
         ]);
     }
 

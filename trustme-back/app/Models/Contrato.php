@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -69,6 +70,39 @@ class Contrato extends Model
     public function participantes()
     {
         return $this->hasMany(ContratoUsuario::class, 'contrato_id');
+    }
+
+    /**
+     * Atualiza status de contratos expirados para o usuário (Ativo->Concluído, Pendente->Expirado).
+     * Considera dt_fim para Ativo e dt_fim ou dt_prazo_assinatura para Pendente.
+     */
+    public static function atualizarExpiradosParaUsuario(User $usuario): void
+    {
+        $agora = Carbon::now('America/Sao_Paulo');
+
+        // Ativos com dt_fim vencida -> Concluído
+        Contrato::query()
+            ->whereHas('participantes', fn ($q) => $q->where('usuario_id', $usuario->id))
+            ->where('status', 'Ativo')
+            ->where('dt_fim', '<=', $agora)
+            ->update(['status' => 'Concluído']);
+
+        // Pendentes: expira por dt_fim OU por dt_prazo_assinatura (tempo de assinatura)
+        $idsPendentesExpirados = Contrato::query()
+            ->whereHas('participantes', fn ($q) => $q->where('usuario_id', $usuario->id))
+            ->where('status', 'Pendente')
+            ->where(function ($q) use ($agora) {
+                $q->where('dt_fim', '<=', $agora)
+                    ->orWhere(function ($sub) use ($agora) {
+                        $sub->whereNotNull('dt_prazo_assinatura')
+                            ->where('dt_prazo_assinatura', '<=', $agora);
+                    });
+            })
+            ->pluck('id');
+
+        if ($idsPendentesExpirados->isNotEmpty()) {
+            Contrato::whereIn('id', $idsPendentesExpirados)->update(['status' => 'Expirado']);
+        }
     }
 
     /**

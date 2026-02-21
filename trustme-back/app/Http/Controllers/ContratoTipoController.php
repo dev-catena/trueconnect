@@ -36,7 +36,7 @@ class ContratoTipoController extends Controller
     public function index()
     {
         $tipos = ContratoTipo::withCount('clausulaTipoContratos as clausulas_count')
-            ->select('id', 'codigo', 'descricao')
+            ->select('id', 'codigo', 'descricao', 'tempo_assinatura_horas')
             ->orderBy('codigo')
             ->get();
         return $this->ok('OK', $tipos);
@@ -64,6 +64,7 @@ class ContratoTipoController extends Controller
         $validator = Validator::make($request->all(), [
             'codigo' => 'required|string|max:255|unique:contrato_tipos,codigo',
             'descricao' => 'required|string|max:255',
+            'tempo_assinatura_horas' => 'nullable|numeric|min:0.5|max:720',
         ]);
 
         if ($validator->fails()) {
@@ -73,7 +74,12 @@ class ContratoTipoController extends Controller
             ], 422);
         }
 
-        $tipo = ContratoTipo::create($request->all());
+        $data = $request->only(['codigo', 'descricao']);
+        $tempo = $request->filled('tempo_assinatura_horas')
+            ? max(0.5, (float) $request->tempo_assinatura_horas)
+            : 1;
+        $data['tempo_assinatura_horas'] = $tempo;
+        $tipo = ContratoTipo::create($data);
 
         return response()->json([
             'success' => true,
@@ -96,6 +102,7 @@ class ContratoTipoController extends Controller
         $validator = Validator::make($request->all(), [
             'codigo' => 'required|string|max:255|unique:contrato_tipos,codigo,' . $id,
             'descricao' => 'required|string|max:255',
+            'tempo_assinatura_horas' => 'nullable|numeric|min:0.5|max:720',
         ]);
 
         if ($validator->fails()) {
@@ -105,7 +112,13 @@ class ContratoTipoController extends Controller
             ], 422);
         }
 
-        $tipo->update($request->all());
+        $data = $request->only(['codigo', 'descricao']);
+        if ($request->has('tempo_assinatura_horas')) {
+            $data['tempo_assinatura_horas'] = $request->filled('tempo_assinatura_horas')
+                ? max(0.5, (float) $request->tempo_assinatura_horas)
+                : 1;
+        }
+        $tipo->update($data);
 
         return response()->json([
             'success' => true,

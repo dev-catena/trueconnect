@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Alert, Image, Modal, Dimensions } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WebView } from 'react-native-webview';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -8,8 +10,18 @@ import { useUser } from '../../../core/context/UserContext';
 import { CustomColors } from '../../../core/colors';
 import SafeIcon from '../../../components/SafeIcon';
 import ApiProvider from '../../../core/api/ApiProvider';
+import { API_BASE_URL } from '../../../utils/constants';
 
 type MySealsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'MySeals'>;
+
+interface SealDocument {
+  id: number;
+  document_type: string;
+  file_name: string;
+  mime_type?: string;
+  is_image: boolean;
+  path: string;
+}
 
 interface Seal {
   id: number;
@@ -17,6 +29,10 @@ interface Seal {
   expira_em?: string;
   obtido_em?: string;
   rejection_reason?: string;
+  analyst_feedback?: string;
+  seal_request_id?: number;
+  solicitado_em?: string;
+  documentos?: SealDocument[];
   selo?: {
     id: number;
     codigo?: string;
@@ -108,6 +124,41 @@ const MySealsScreen: React.FC = () => {
     }
   };
 
+  const formatDateTime = (dateString?: string) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return 'N/A';
+    }
+  };
+
+  const [docModalVisible, setDocModalVisible] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<SealDocument | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem('authToken').then((t) => setAuthToken(t?.trim() || null));
+  }, []);
+
+  const getDocUrl = (doc: SealDocument) => {
+    const base = API_BASE_URL.replace(/\/$/, '');
+    const path = doc.path.startsWith('/') ? doc.path.slice(1) : doc.path;
+    return `${base}/${path}`;
+  };
+
+  const openDocument = (doc: SealDocument) => {
+    setSelectedDoc(doc);
+    setDocModalVisible(true);
+  };
+
   const renderSealSection = (title: string, seals: Seal[], status: string) => {
     if (!seals || seals.length === 0) return null;
 
@@ -133,6 +184,58 @@ const MySealsScreen: React.FC = () => {
               </View>
             </View>
             <View style={styles.sealDetails}>
+              {status === 'pendentes' && seal.solicitado_em && (
+                <View style={styles.detailRow}>
+                  <SafeIcon name="time" size={16} color={CustomColors.activeGreyed} />
+                  <Text style={styles.detailText}>Solicitado em: {formatDateTime(seal.solicitado_em)}</Text>
+                </View>
+              )}
+              {status === 'pendentes' && seal.documentos && seal.documentos.length > 0 && (
+                <View style={styles.documentsSection}>
+                  <Text style={styles.documentsLabel}>Documentos enviados:</Text>
+                  {seal.documentos.map((doc) => (
+                    <TouchableOpacity
+                      key={doc.id}
+                      style={styles.docLink}
+                      onPress={() => openDocument(doc)}
+                    >
+                      <SafeIcon
+                        name={doc.is_image ? 'image' : 'document'}
+                        size={16}
+                        color={CustomColors.activeColor}
+                      />
+                      <Text style={styles.docLinkText}>
+                        {doc.document_type === 'frente' ? 'Frente' : doc.document_type === 'tras' ? 'Trás' : doc.document_type} - {doc.file_name}
+                        {doc.is_image ? ' (ver)' : ' (baixar)'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {status === 'pendentes' && seal.analyst_feedback && (
+                <View style={[styles.detailRow, styles.feedbackBox]}>
+                  <SafeIcon name="alert-circle" size={16} color="#E65100" />
+                  <View style={styles.feedbackContent}>
+                    <Text style={styles.feedbackLabel}>O analista solicitou mais informações:</Text>
+                    <Text style={styles.analystFeedbackText}>{seal.analyst_feedback}</Text>
+                    {seal.seal_request_id && (
+                      <TouchableOpacity
+                        style={styles.complementBtn}
+                        onPress={() =>
+                          navigation.navigate('SealComplement', {
+                            sealRequestId: seal.seal_request_id!,
+                            seloName: seal.sealType?.name || seal.selo?.descricao || 'Selo',
+                            analystFeedback: seal.analyst_feedback,
+                          })
+                        }
+                      >
+                        <SafeIcon name="cloud-upload" size={14} color={CustomColors.activeColor} />
+                        <Text style={styles.complementBtnText}>Complementar documentação</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              )}
               {status === 'cancelados' && (
                 <View style={[styles.detailRow, styles.rejectionReasonBox]}>
                   <SafeIcon name="alert-circle" size={16} color={CustomColors.vividRed} />
@@ -268,6 +371,42 @@ const MySealsScreen: React.FC = () => {
           </>
         )}
       </ScrollView>
+
+      <Modal visible={docModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {selectedDoc?.file_name || 'Documento'}
+              </Text>
+              <TouchableOpacity onPress={() => setDocModalVisible(false)} style={styles.modalCloseBtn}>
+                <SafeIcon name="close-circle" size={28} color={CustomColors.activeGreyed} />
+              </TouchableOpacity>
+            </View>
+            {selectedDoc && authToken && (
+              selectedDoc.is_image ? (
+                <Image
+                  source={{
+                    uri: getDocUrl(selectedDoc),
+                    headers: { Authorization: `Bearer ${authToken}` },
+                  }}
+                  style={styles.modalImage}
+                  resizeMode="contain"
+                />
+              ) : (
+                <WebView
+                  source={{
+                    uri: getDocUrl(selectedDoc),
+                    headers: { Authorization: `Bearer ${authToken}` },
+                  }}
+                  style={styles.modalWebView}
+                  originWhitelist={['*']}
+                />
+              )
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -451,6 +590,95 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: CustomColors.activeGreyed,
     marginLeft: 8,
+  },
+  feedbackBox: {
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF8E1',
+    borderRadius: 8,
+    padding: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FFA726',
+  },
+  feedbackContent: { flex: 1, marginLeft: 8 },
+  feedbackLabel: { fontSize: 12, fontWeight: '600', color: '#E65100', marginBottom: 4 },
+  analystFeedbackText: { fontSize: 14, color: '#333', marginBottom: 8 },
+  complementBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+  },
+  complementBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: CustomColors.activeColor,
+    marginLeft: 6,
+  },
+  documentsSection: {
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  documentsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#555',
+    marginBottom: 6,
+  },
+  docLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 0,
+  },
+  docLinkText: {
+    fontSize: 14,
+    color: CustomColors.activeColor,
+    marginLeft: 8,
+    flex: 1,
+    textDecorationLine: 'underline',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '90%',
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    flex: 1,
+  },
+  modalCloseBtn: {
+    padding: 4,
+  },
+  modalImage: {
+    width: '100%',
+    height: Dimensions.get('window').height * 0.5,
+  },
+  modalWebView: {
+    width: '100%',
+    height: Dimensions.get('window').height * 0.5,
   },
   rejectionReasonBox: {
     alignItems: 'flex-start',

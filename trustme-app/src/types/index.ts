@@ -53,6 +53,7 @@ export interface Contract {
   dt_inicio: string;
   dt_fim: string;
   dt_prazo_assinatura?: string | null;
+  created_at?: string | null;
   contratante_id: number;
   /** Definido pelo backend - evita inconsistências quando o usuário é participante */
   usuario_e_criador?: boolean;

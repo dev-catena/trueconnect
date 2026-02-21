@@ -8,7 +8,6 @@ use App\Models\Contrato;
 use App\Models\ContratoClausula;
 use App\Models\ContratoUsuario;
 use App\Models\ContratoUsuarioClausula;
-use App\Models\ParametroSistema;
 use App\Models\UserNotification;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -102,7 +101,7 @@ class ContratoClausulaController extends Controller
         ]);
 
         $contratoId = (int) $validated['contrato_id'];
-        $contrato = Contrato::with('contratante')->find($contratoId);
+        $contrato = Contrato::with(['contratante', 'tipo'])->find($contratoId);
         if (!$contrato) {
             return $this->fail('Contrato não encontrado.', null, 404);
         }
@@ -168,7 +167,10 @@ class ContratoClausulaController extends Controller
             // Se o contrato estava Ativo ou Concluído: voltar para Pendente, resetar assinaturas, todos devem assinar de novo
             $voltouParaPendente = in_array($contrato->status, ['Ativo', 'Concluído']);
             if ($voltouParaPendente) {
-                $tempoHoras = ParametroSistema::getValorInt('tempo_assinatura_contrato_horas', 24);
+                $tipoContrato = $contrato->tipo;
+                $tempoHoras = $tipoContrato && $tipoContrato->tempo_assinatura_horas !== null
+                    ? (float) $tipoContrato->tempo_assinatura_horas
+                    : 24;
                 $contrato->update([
                     'status' => 'Pendente',
                     'dt_inicio' => null,

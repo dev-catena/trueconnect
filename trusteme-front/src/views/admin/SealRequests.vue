@@ -161,6 +161,23 @@
                 <p class="text-sm font-semibold text-red-800 mb-1">Motivo da Rejeição:</p>
                 <p class="text-sm text-red-700">{{ request.rejection_reason }}</p>
               </div>
+
+              <!-- Feedback do analista (quando pediu mais informações) -->
+              <div v-if="(request.status === 'pending' || request.status === 'under_review') && request.analyst_feedback" class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded">
+                <p class="text-sm font-semibold text-amber-800 mb-1">Informações solicitadas ao candidato:</p>
+                <p class="text-sm text-amber-700">{{ request.analyst_feedback }}</p>
+                <p v-if="request.analyst_feedback_at" class="text-xs text-amber-600 mt-1">
+                  Em {{ formatDate(request.analyst_feedback_at) }}
+                </p>
+              </div>
+              <!-- Resposta do solicitante -->
+              <div v-if="request.user_response" class="mb-4 p-3 bg-green-50 border border-green-200 rounded">
+                <p class="text-sm font-semibold text-green-800 mb-1">Resposta do solicitante:</p>
+                <p class="text-sm text-green-700 whitespace-pre-wrap">{{ request.user_response }}</p>
+                <p v-if="request.user_response_at" class="text-xs text-green-600 mt-1">
+                  Em {{ formatDate(request.user_response_at) }}
+                </p>
+              </div>
             </div>
 
             <!-- Actions -->
@@ -172,6 +189,13 @@
                   :disabled="processing"
                 >
                   Aprovar Selo
+                </button>
+                <button
+                  @click="showRequestMoreInfoModal(request)"
+                  class="btn-secondary whitespace-nowrap bg-amber-500 hover:bg-amber-600 text-white"
+                  :disabled="processing"
+                >
+                  Pedir mais informações
                 </button>
                 <button
                   @click="showRejectModal(request)"
@@ -243,6 +267,31 @@
       </div>
     </div>
 
+    <!-- Modal Pedir mais informações -->
+    <Modal :show="showRequestMoreInfoModalOpen" @close="closeRequestMoreInfoModal" title="Pedir mais informações">
+      <form @submit.prevent="submitRequestMoreInfo" class="space-y-4">
+        <p class="text-sm text-gray-600">O selo permanecerá pendente. O solicitante receberá esta mensagem e poderá complementar a documentação.</p>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            Informações solicitadas *
+          </label>
+          <textarea
+            v-model="analystFeedback"
+            rows="4"
+            class="input-field"
+            placeholder="Descreva quais documentos ou informações adicionais o solicitante deve enviar..."
+            required
+          ></textarea>
+        </div>
+        <div class="flex justify-end space-x-3">
+          <button type="button" @click="closeRequestMoreInfoModal" class="btn-secondary">Cancelar</button>
+          <button type="submit" class="btn-primary" :disabled="processing">
+            {{ processing ? 'Enviando...' : 'Enviar' }}
+          </button>
+        </div>
+      </form>
+    </Modal>
+
     <!-- Modal Reprovar -->
     <Modal :show="showRejectModalOpen" @close="closeRejectModal" title="Reprovar Solicitação">
       <form @submit.prevent="rejectRequest" class="space-y-4">
@@ -306,6 +355,8 @@ const searchQuery = ref('')
 const activeTab = ref('para_aprovar') // 'para_aprovar' | 'aprovados' | 'rejeitados'
 const processing = ref(false)
 const showRejectModalOpen = ref(false)
+const showRequestMoreInfoModalOpen = ref(false)
+const analystFeedback = ref('')
 const showImageModal = ref(false)
 const selectedRequest = ref(null)
 const selectedRequestForImage = ref(null)
@@ -446,12 +497,17 @@ const fetchRequests = async (showLoading = true, page = currentPage.value) => {
       try {
         const detailResponse = await api.get(`/servicedesk/requests/${request.id}`)
         if (detailResponse.data.success && detailResponse.data.data) {
-          request.documents = (detailResponse.data.data.documents || []).map(doc => {
+          const d = detailResponse.data.data
+          request.documents = (d.documents || []).map(doc => {
             const storageBase = CONFIG.STORAGE_BASE_URL || window.location.origin
             const path = doc.file_path?.startsWith('/') ? doc.file_path.slice(1) : (doc.file_path || '')
             const fullStorageUrl = path ? `${storageBase.replace(/\/$/, '')}/storage/${path}` : null
             return { ...doc, file_url: fullStorageUrl || doc.file_url }
           })
+          if (d.analyst_feedback !== undefined) request.analyst_feedback = d.analyst_feedback
+          if (d.analyst_feedback_at !== undefined) request.analyst_feedback_at = d.analyst_feedback_at
+          if (d.user_response !== undefined) request.user_response = d.user_response
+          if (d.user_response_at !== undefined) request.user_response_at = d.user_response_at
         }
       } catch (error) {
         console.error(`Erro ao carregar documentos da solicitação ${request.id}:`, error)
@@ -472,6 +528,38 @@ const goToPage = (page) => {
   if (page < 1) return
   currentPage.value = page
   fetchRequests(true, page)
+}
+
+const showRequestMoreInfoModal = (request) => {
+  selectedRequest.value = request
+  analystFeedback.value = ''
+  showRequestMoreInfoModalOpen.value = true
+}
+const closeRequestMoreInfoModal = () => {
+  showRequestMoreInfoModalOpen.value = false
+  selectedRequest.value = null
+  analystFeedback.value = ''
+}
+const submitRequestMoreInfo = async () => {
+  if (!selectedRequest.value?.id || !analystFeedback.value?.trim()) return
+  processing.value = true
+  try {
+    const response = await api.post(`/servicedesk/requests/${selectedRequest.value.id}/request-more-info`, {
+      feedback: analystFeedback.value.trim()
+    })
+    if (response.data.success) {
+      alert('Solicitação de informações enviada! O solicitante poderá complementar a documentação.')
+      closeRequestMoreInfoModal()
+      await fetchRequests()
+    } else {
+      alert(response.data.message || 'Erro ao enviar solicitação')
+    }
+  } catch (error) {
+    console.error('Erro ao pedir mais informações:', error)
+    alert(error.response?.data?.message || 'Erro ao enviar solicitação de informações')
+  } finally {
+    processing.value = false
+  }
 }
 
 const approveRequest = async (requestId) => {

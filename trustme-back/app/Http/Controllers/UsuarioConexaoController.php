@@ -25,7 +25,17 @@ class UsuarioConexaoController extends Controller
         ]);
 
         $usuario = Auth::user();
-        
+
+        // Ausência de plano precede qualquer outra validação
+        if (!$usuario->hasActivePlan()) {
+            return $this->fail(
+                'Você precisa assinar um plano para solicitar conexões. Acesse a área de planos e assine um plano.',
+                null,
+                403,
+                ['block_reason' => 'sem_plano']
+            );
+        }
+
         // Verificar limite do solicitante (apenas conexões - pendentes + ativas)
         $check = $usuario->canSendConnectionRequest();
         if (!$check['can']) {
@@ -141,6 +151,15 @@ class UsuarioConexaoController extends Controller
         }
 
         if ($validated['aceito']) {
+            // Ausência de plano precede qualquer outra validação
+            if (!$usuario->hasActivePlan()) {
+                return $this->fail(
+                    'Você precisa assinar um plano para aceitar conexões. Acesse a área de planos e assine um plano.',
+                    null,
+                    403,
+                    ['block_reason' => 'sem_plano']
+                );
+            }
             // Verificar limite do destinatário (já checado na solicitação; manter por segurança)
             if (!$usuario->canCreateConnection()) {
                 $limit = $usuario->getTotalConnectionsLimit();
@@ -198,6 +217,16 @@ class UsuarioConexaoController extends Controller
         // Verificar se já está aceita
         if ($conexao->aceito === true) {
             return $this->fail('Esta conexão já foi aceita.', null, 422);
+        }
+
+        // Ausência de plano precede qualquer outra validação
+        if (!$usuario->hasActivePlan()) {
+            return $this->fail(
+                'Você precisa assinar um plano para aceitar conexões. Acesse a área de planos e assine um plano.',
+                null,
+                403,
+                ['block_reason' => 'sem_plano']
+            );
         }
 
         // Verificar limite do destinatário

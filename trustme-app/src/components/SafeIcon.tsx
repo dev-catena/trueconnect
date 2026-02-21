@@ -12,6 +12,7 @@ const iconMap: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
   home: 'home',
   'document-text': 'file-document',
   document: 'file-pdf-box',
+  image: 'image',
   notifications: 'bell',
   profile: 'account-circle',
   connections: 'link',
@@ -45,6 +46,8 @@ const iconMap: Record<string, keyof typeof MaterialCommunityIcons.glyphMap> = {
   star: 'star',
   'star-outline': 'star-outline',
   people: 'account-group',
+  send: 'send',
+  'cloud-upload': 'cloud-upload',
 };
 
 const SafeIcon: React.FC<SafeIconProps> = ({ 

@@ -229,6 +229,15 @@ class User extends Authenticatable
             ->orderByDesc('plan_id'); // Infinit (2) antes de Core (1)
     }
 
+    /**
+     * Verifica se o usuário possui plano ativo.
+     * A ausência de plano precede qualquer outra validação (conexões, contratos).
+     */
+    public function hasActivePlan(): bool
+    {
+        return $this->activeSubscription !== null;
+    }
+
     public function additionalPurchases()
     {
         return $this->hasMany(AdditionalPurchase::class);

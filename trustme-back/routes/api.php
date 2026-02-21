@@ -100,6 +100,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/requests/{requestId}/documents/{documentId}/file', [SealRequestController::class, 'serveDocument']);
         Route::post('/requests/{id}/approve', [SealRequestController::class, 'approve']);
         Route::post('/requests/{id}/reject', [SealRequestController::class, 'reject']);
+        Route::post('/requests/{id}/request-more-info', [SealRequestController::class, 'requestMoreInfo']);
         Route::post('/requests/{id}/revoke', [SealRequestController::class, 'revoke']);
         Route::post('/requests/{id}/revert-rejection', [SealRequestController::class, 'revertRejection']);
         Route::delete('/requests/{id}', [SealRequestController::class, 'destroy']);
@@ -115,6 +116,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/usuario/alterar-senha', [AuthController::class, 'alterarSenha']);
     // Route::get('/selos/listar', [SeloController::class, 'index']); // Movida para rotas públicas (linha 51)
     Route::post('/selos/solicitar', [SeloController::class, 'solicitar']);
+    Route::post('/selos/complementar', [SeloController::class, 'complementar']);
+    Route::get('/selos/solicitacao/{requestId}/documentos/{documentId}/file', [SeloController::class, 'serveMyDocument']);
     Route::post('/selos/pagamento', [SeloController::class, 'pagamento']);
     Route::post('/selos/confirm-store-payment', [SeloController::class, 'confirmStorePayment']);
 
@@ -209,6 +212,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/seal-requests/{id}', [SealRequestController::class, 'show']);
         Route::post('/admin/seal-requests/{id}/approve', [SealRequestController::class, 'approve']);
         Route::post('/admin/seal-requests/{id}/reject', [SealRequestController::class, 'reject']);
+        Route::post('/admin/seal-requests/{id}/request-more-info', [SealRequestController::class, 'requestMoreInfo']);
         Route::post('/admin/seal-requests/{id}/revoke', [SealRequestController::class, 'revoke']);
         Route::post('/admin/seal-requests/{id}/revert-rejection', [SealRequestController::class, 'revertRejection']);
         Route::delete('/admin/seal-requests/{id}', [SealRequestController::class, 'destroy']);

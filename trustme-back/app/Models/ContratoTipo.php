@@ -14,7 +14,8 @@ class ContratoTipo extends Model
 
     protected $fillable = [
         'codigo',
-        'descricao'
+        'descricao',
+        'tempo_assinatura_horas',
     ];
 
     protected $dates = [

@@ -115,6 +115,14 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
       }
     } catch (error: any) {
       console.error('Erro ao carregar detalhes do contrato:', error);
+      const status = error?.response?.status;
+      if (status === 404) {
+        Alert.alert(
+          'Contrato não encontrado',
+          'Este contrato não está mais disponível. Ele pode ter sido cancelado ou removido.',
+          [{ text: 'OK', onPress: () => navigation.goBack() }]
+        );
+      }
     } finally {
       setIsLoadingClauses(false);
     }
@@ -578,42 +586,43 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
     return totalAprovacoes === totalParticipants || totalRejeicoes === totalParticipants;
   };
 
-  // Gerar cabeçalho do contrato com as partes
+  // Gerar cabeçalho do contrato com as partes (suporta 2 ou mais partes)
   const getContractHeader = (): string => {
-    // Parte A: Contratante
-    const nomeParteA = contract.contratante?.nome_completo || contract.contratante?.name;
-    
-    // Parte B: Participantes
-    let nomesParteB: string[] = [];
-    if (contract.participantes && contract.participantes.length > 0) {
-      nomesParteB = contract.participantes
-        .map(p => p.usuario?.nome_completo || p.usuario?.name)
-        .filter((nome): nome is string => Boolean(nome && nome !== 'N/A'));
+    const contratanteId = contract.contratante_id ?? contract.contratante?.id;
+    const nomeContratante = contract.contratante?.nome_completo || contract.contratante?.name;
+
+    // Coletar todas as partes únicas: contratante + participantes (excluindo contratante para evitar duplicação)
+    const partesMap = new Map<number, string>();
+    if (nomeContratante && contratanteId) {
+      partesMap.set(contratanteId, nomeContratante);
     }
-    
-    // Montar o texto do cabeçalho
-    if (nomeParteA && nomesParteB.length > 0) {
-      // Formatar nomes da Parte B
-      let parteBTexto = '';
-      if (nomesParteB.length === 1) {
-        parteBTexto = `"${nomesParteB[0]}"`;
-      } else {
-        const ultimoNome = nomesParteB[nomesParteB.length - 1];
-        const outrosNomes = nomesParteB.slice(0, -1).join('", "');
-        parteBTexto = `"${outrosNomes}" e "${ultimoNome}"`;
+    if (contract.participantes?.length) {
+      for (const p of contract.participantes) {
+        const userId = p.usuario_id ?? p.usuario?.id;
+        const nome = p.usuario?.nome_completo || p.usuario?.name;
+        if (nome && nome !== 'N/A' && userId && !partesMap.has(userId)) {
+          partesMap.set(userId, nome);
+        }
       }
-      
-      return `Contrato que entre si celebram "${nomeParteA}" doravante designado Parte A e ${parteBTexto}, doravante designada Parte B acordando o seguinte:`;
-    } else if (nomeParteA) {
-      return `Contrato que entre si celebram "${nomeParteA}" doravante designado Parte A acordando o seguinte:`;
-    } else if (nomesParteB.length > 0) {
-      const parteBTexto = nomesParteB.length === 1 
-        ? `"${nomesParteB[0]}"`
-        : `"${nomesParteB.join('", "')}"`;
-      return `Contrato que entre si celebram ${parteBTexto} doravante designada Parte B acordando o seguinte:`;
     }
-    
-    return 'Contrato que entre si celebram as partes acordando o seguinte:';
+
+    const partesOrdenadas = Array.from(partesMap.values());
+    if (partesOrdenadas.length === 0) {
+      return 'Contrato que entre si celebram as partes acordando o seguinte:';
+    }
+    if (partesOrdenadas.length === 1) {
+      return `Contrato que entre si celebram "${partesOrdenadas[0]}" doravante designado(a) Parte A, acordando o seguinte:`;
+    }
+
+    // Duas ou mais partes: cada uma com sua designação (Parte A, B, C...)
+    const letras = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+    const trechos = partesOrdenadas.map((nome, idx) => {
+      const letra = letras[idx] ?? String.fromCharCode(65 + idx);
+      return `"${nome}", doravante designado(a) Parte ${letra}`;
+    });
+    const ultimo = trechos.pop()!;
+    const texto = trechos.length > 0 ? `${trechos.join(' e ')} e ${ultimo}` : ultimo;
+    return `Contrato que entre si celebram ${texto}, acordando o seguinte:`;
   };
 
   return (
@@ -647,12 +656,12 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
             <Text style={styles.infoValue}>{contract.duracao} horas</Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Data de Início:</Text>
-            <Text style={styles.infoValue}>{formatDate(contract.dt_inicio)}</Text>
+            <Text style={styles.infoLabel}>Data/Hora de Início:</Text>
+            <Text style={styles.infoValue}>{formatDateTime(contract.dt_inicio)}</Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Data de Término:</Text>
-            <Text style={styles.infoValue}>{formatDate(contract.dt_fim)}</Text>
+            <Text style={styles.infoLabel}>Data/Hora de Término:</Text>
+            <Text style={styles.infoValue}>{formatDateTime(contract.dt_fim)}</Text>
           </View>
         </View>
 
@@ -794,7 +803,7 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
                   >
                     <View style={styles.clauseHeader}>
                       <View style={styles.clauseTitleRow}>
-                        <Text style={styles.clauseCode}>{clause.codigo}</Text>
+                        <Text style={styles.clauseCode}>{index + 1}.</Text>
                         <Text style={styles.clauseName}>{clause.nome}</Text>
                       </View>
                     </View>
@@ -982,7 +991,16 @@ const ContractDetailScreen: React.FC<Props> = ({ route }) => {
               {isSigningExpired
                 ? 'O prazo para assinatura do contrato expirou. Não é mais possível assinar.'
                 : contract.clausulas_em_desacordo && contract.clausulas_em_desacordo.length > 0
-                  ? `Há ${contract.clausulas_em_desacordo.length} cláusula(s) em desacordo. Todos devem concordar ou discordar de cada cláusula para assinar o contrato.`
+                  ? (() => {
+                      const nums = (contract.clausulas ?? [])
+                        .map((c, idx) => (contract.clausulas_em_desacordo!.includes(c.id) ? idx + 1 : null))
+                        .filter((n): n is number => n !== null)
+                        .sort((a, b) => a - b);
+                      const quais = nums.length <= 2
+                        ? nums.join(' e ')
+                        : nums.slice(0, -1).join(', ') + ' e ' + nums[nums.length - 1];
+                      return `Há ${nums.length} cláusula(s) em desacordo (${quais}). Todos devem concordar ou discordar de cada cláusula para assinar o contrato.`;
+                    })()
                   : 'Todas as cláusulas devem estar coincidentes (todos devem aprovar ou todos devem rejeitar cada cláusula) antes de assinar o contrato.'}
             </Text>
           </View>

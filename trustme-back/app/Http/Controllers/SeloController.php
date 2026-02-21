@@ -337,12 +337,12 @@ class SeloController extends Controller
         }
 
         // Obter e normalizar documentos do selo (suporta formato antigo e novo)
-        $docItems = self::normalizeDocumentosEvidencias(
-            $selo->documentos_evidencias && is_array($selo->documentos_evidencias) ? $selo->documentos_evidencias : []
-        );
-        if (empty($docItems)) {
-            $docItems = [['nome' => 'Frente', 'obrigatorio' => true], ['nome' => 'Trás', 'obrigatorio' => true]];
-        }
+        // Se documentos_evidencias for [] (array vazio), o selo não exige documentos.
+        // Fallback Frente/Trás só quando for null/undefined (dados legados).
+        $raw = $selo->documentos_evidencias;
+        $docItems = is_array($raw) && !empty($raw)
+            ? self::normalizeDocumentosEvidencias($raw)
+            : (($raw === null || $raw === '') ? [['nome' => 'Frente', 'obrigatorio' => true], ['nome' => 'Trás', 'obrigatorio' => true]] : []);
 
         // Mapear docKey => { nome exibido, obrigatorio }
         $normalizedDocs = [];
@@ -395,15 +395,23 @@ class SeloController extends Controller
         // Buscar ou criar um seal_type correspondente ao selo
         // Usar o código do selo para encontrar o seal_type correspondente
         $sealType = SealType::where('code', $selo->codigo)->first();
-        
-        // Se não encontrar, criar um seal_type baseado no selo
+
+        $seloName = $selo->nome ?? $selo->descricao ?? 'Selo ' . $selo->id;
+
         if (!$sealType) {
             $sealType = SealType::create([
                 'code' => $selo->codigo ?? 'selo_' . $selo->id,
-                'name' => $selo->nome ?? $selo->descricao ?? 'Selo ' . $selo->id,
+                'name' => $seloName,
                 'description' => $selo->descricao ?? null,
                 'requires_manual_approval' => true,
                 'is_active' => true,
+            ]);
+        } else {
+            // Atualizar nome do SealType com o do Selo atual (Selo é a fonte da verdade)
+            // Evita exibir nome antigo quando selo foi renomeado ou código reutilizado
+            $sealType->update([
+                'name' => $seloName,
+                'description' => $selo->descricao ?? $sealType->description,
             ]);
         }
 
@@ -469,6 +477,130 @@ class SeloController extends Controller
                 'error' => config('app.debug') ? $e->getMessage() : 'Erro interno do servidor'
             ], 500);
         }
+    }
+
+    /**
+     * Complementar documentação de uma solicitação em análise.
+     * Usado quando o analista pediu mais informações - o solicitante adiciona novos documentos.
+     */
+    public function complementar(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'seal_request_id' => 'required|exists:seal_requests,id',
+            'user_response' => 'nullable|string|max:5000',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+        $hasFile = false;
+        foreach ($request->allFiles() as $file) {
+            if ($file && $file->isValid()) { $hasFile = true; break; }
+        }
+        $userResponse = trim((string) ($request->user_response ?? ''));
+        if (!$hasFile && $userResponse === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Envie ao menos um documento ou uma mensagem de texto respondendo ao analista.',
+            ], 422);
+        }
+
+        $user = Auth::user();
+        $sealRequest = SealRequest::with('sealType')->findOrFail($request->seal_request_id);
+
+        if ($sealRequest->user_id !== $user->id) {
+            return response()->json(['success' => false, 'message' => 'Solicitação não encontrada'], 404);
+        }
+        if (!in_array($sealRequest->status, ['pending', 'under_review'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Esta solicitação não está mais em análise.',
+            ], 400);
+        }
+
+        $uploaded = 0;
+        $allowedMimes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+        if (config('app.debug')) {
+            \Log::debug('complementar allFiles', [
+                'keys' => array_keys($request->allFiles()),
+                'has_frente' => $request->hasFile('frente'),
+                'has_tras' => $request->hasFile('tras'),
+            ]);
+        }
+        foreach ($request->allFiles() as $docKey => $file) {
+            if (!$file || !$file->isValid()) continue;
+            $mime = $file->getMimeType();
+            if (!in_array($mime, $allowedMimes) && !str_starts_with($mime, 'image/')) {
+                continue;
+            }
+            if ($file->getSize() > 10 * 1024 * 1024) continue; // 10MB max
+            $filePath = $file->store('seal_documents', 'public');
+            SealDocument::create([
+                'seal_request_id' => $sealRequest->id,
+                'document_type' => $docKey,
+                'file_path' => $filePath,
+                'file_name' => $file->getClientOriginalName(),
+                'mime_type' => $mime,
+                'file_size' => $file->getSize(),
+                'notes' => 'Complemento enviado pelo solicitante',
+            ]);
+            $uploaded++;
+        }
+
+        $sealRequest->update([
+            'analyst_feedback' => null,
+            'analyst_feedback_at' => null,
+            'user_response' => $userResponse !== '' ? $userResponse : $sealRequest->user_response,
+            'user_response_at' => $userResponse !== '' ? now() : $sealRequest->user_response_at,
+        ]);
+
+        SealRequestAtualizado::dispatch($sealRequest->fresh(), 'complementado');
+
+        $message = 'Resposta enviada com sucesso. Aguarde a nova análise.';
+        if ($uploaded > 0 && $userResponse !== '') {
+            $message = "Mensagem e {$uploaded} documento(s) enviados. Aguarde a nova análise.";
+        } elseif ($uploaded > 0) {
+            $message = "{$uploaded} documento(s) enviado(s). Aguarde a nova análise.";
+        } elseif ($userResponse !== '') {
+            $message = 'Mensagem enviada. Aguarde a nova análise.';
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $message,
+            'data' => ['documents_received' => $uploaded],
+        ]);
+    }
+
+    /**
+     * Serve documento da própria solicitação (para o solicitante ver/baixar no app)
+     */
+    public function serveMyDocument($requestId, $documentId)
+    {
+        $user = Auth::user();
+        $sealRequest = SealRequest::with('documents')->findOrFail($requestId);
+
+        if ($sealRequest->user_id !== $user->id) {
+            abort(403, 'Acesso negado');
+        }
+
+        $document = $sealRequest->documents->firstWhere('id', (int) $documentId);
+        if (!$document || !$document->file_path) {
+            abort(404, 'Documento não encontrado');
+        }
+
+        $path = storage_path('app/public/' . $document->file_path);
+        if (!file_exists($path)) {
+            abort(404, 'Arquivo não encontrado');
+        }
+
+        $disposition = (str_starts_with($document->mime_type ?? '', 'image/'))
+            ? 'inline'
+            : 'attachment';
+
+        return response()->file($path, [
+            'Content-Type' => $document->mime_type ?? 'application/octet-stream',
+            'Content-Disposition' => "{$disposition}; filename=\"" . basename($document->file_name ?? $document->file_path) . '"',
+        ]);
     }
 
     public function pagamento(Request $request)

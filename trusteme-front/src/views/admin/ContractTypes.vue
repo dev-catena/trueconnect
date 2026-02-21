@@ -59,6 +59,9 @@
                 Cláusulas
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Prazo assinatura
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Ações
               </th>
             </tr>
@@ -74,6 +77,11 @@
               <td class="px-6 py-4 whitespace-nowrap">
                 <div class="text-sm text-gray-500">
                   {{ getClausulasCount(type.id) }} cláusula(s)
+                </div>
+              </td>
+              <td class="px-6 py-4 whitespace-nowrap">
+                <div class="text-sm text-gray-500">
+                  {{ (type.tempo_assinatura_horas ?? 1) }}h
                 </div>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -125,6 +133,18 @@
             :error="errors.descricao"
           />
         </div>
+        <div>
+          <FormInput
+            v-model.number="contractTypeForm.tempo_assinatura_horas"
+            label="Tempo para assinatura (horas)"
+            type="number"
+            :min="0.5"
+            :step="0.5"
+            placeholder="1"
+            :error="errors.tempo_assinatura_horas"
+          />
+          <p class="text-xs text-gray-500 mt-1">Prazo que as partes têm para assinar o contrato após criação</p>
+        </div>
         <div class="flex justify-end space-x-3">
           <button
             type="button"
@@ -147,6 +167,30 @@
     <!-- Manage Clauses Modal -->
     <Modal :show="showClausulasModal" @close="closeClausulasModal" :title="`Cláusulas - ${selectedContractType?.codigo || ''}`">
       <div class="space-y-4">
+        <!-- Tempo para assinatura (por tipo) -->
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <h3 class="text-sm font-medium text-gray-700 mb-2">Tempo para assinatura do contrato</h3>
+          <p class="text-xs text-gray-500 mb-2">Prazo em horas que as partes têm para assinar contratos deste tipo</p>
+          <div class="flex gap-2 items-center">
+            <input
+              v-model.number="tempoAssinaturaNoModal"
+              type="number"
+              min="0.5"
+              step="0.5"
+              class="w-24 px-3 py-2 border border-gray-300 rounded-md"
+              placeholder="1"
+            />
+            <span class="text-sm text-gray-600">horas</span>
+            <button
+              @click="saveTempoAssinatura"
+              :disabled="savingTempoAssinatura"
+              class="btn-primary py-2 px-4"
+            >
+              {{ savingTempoAssinatura ? 'Salvando...' : 'Salvar' }}
+            </button>
+          </div>
+        </div>
+
         <!-- Lista de cláusulas do tipo -->
         <div>
           <h3 class="text-sm font-medium text-gray-700 mb-2">Cláusulas Associadas</h3>
@@ -158,12 +202,12 @@
           </div>
           <div v-else class="space-y-2 max-h-60 overflow-y-auto">
             <div
-              v-for="clausula in typeClausulas"
+              v-for="(clausula, idx) in typeClausulas"
               :key="clausula.id"
               class="flex items-center justify-between p-3 bg-gray-50 rounded border"
             >
               <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900">{{ clausula.codigo }} - {{ clausula.nome }}</div>
+                <div class="text-sm font-medium text-gray-900">{{ idx + 1 }}. {{ clausula.nome }}</div>
                 <div class="text-xs text-gray-500 mt-1">{{ clausula.descricao }}</div>
               </div>
               <button
@@ -333,12 +377,15 @@ const errors = ref({})
 
 const contractTypeForm = reactive({
   codigo: '',
-  descricao: ''
+  descricao: '',
+  tempo_assinatura_horas: 1
 })
 
 // Cláusulas
 const showClausulasModal = ref(false)
 const selectedContractType = ref(null)
+const tempoAssinaturaNoModal = ref(1)
+const savingTempoAssinatura = ref(false)
 const typeClausulas = ref([])
 const availableClausulas = ref([])
 const allClausulas = ref([]) // Todas as cláusulas do sistema
@@ -397,6 +444,7 @@ const editContractType = (type) => {
   editingContractType.value = type
   contractTypeForm.codigo = type.codigo
   contractTypeForm.descricao = type.descricao
+  contractTypeForm.tempo_assinatura_horas = type.tempo_assinatura_horas ?? 1
   showEditModal.value = true
 }
 
@@ -423,6 +471,13 @@ const deleteContractType = async (type) => {
 const saveContractType = async () => {
   saving.value = true
   errors.value = {}
+
+  const tempo = Number(contractTypeForm.tempo_assinatura_horas)
+  if (tempo < 0.5) {
+    errors.value.tempo_assinatura_horas = 'O tempo deve ser de pelo menos 0,5 hora (30 minutos).'
+    saving.value = false
+    return
+  }
 
   try {
     if (showEditModal.value) {
@@ -451,6 +506,7 @@ const closeModal = () => {
   editingContractType.value = null
   contractTypeForm.codigo = ''
   contractTypeForm.descricao = ''
+  contractTypeForm.tempo_assinatura_horas = 1
   errors.value = {}
 }
 
@@ -461,9 +517,31 @@ const getClausulasCount = (typeId) => {
 
 const manageClausulas = async (type) => {
   selectedContractType.value = type
+  tempoAssinaturaNoModal.value = type.tempo_assinatura_horas ?? 1
   showClausulasModal.value = true
   await loadTypeClausulas(type.id)
   await loadAvailableClausulas()
+}
+
+const saveTempoAssinatura = async () => {
+  if (!selectedContractType.value || tempoAssinaturaNoModal.value < 0.5) {
+    alert('O tempo deve ser de pelo menos 0,5 hora (30 minutos).')
+    return
+  }
+  savingTempoAssinatura.value = true
+  try {
+    await api.put(`/contrato-tipos/${selectedContractType.value.id}`, {
+      codigo: selectedContractType.value.codigo,
+      descricao: selectedContractType.value.descricao,
+      tempo_assinatura_horas: tempoAssinaturaNoModal.value
+    })
+    selectedContractType.value.tempo_assinatura_horas = tempoAssinaturaNoModal.value
+    await fetchContractTypes()
+  } catch (error) {
+    alert(error.response?.data?.message || 'Erro ao salvar. Tente novamente.')
+  } finally {
+    savingTempoAssinatura.value = false
+  }
 }
 
 const loadTypeClausulas = async (typeId) => {
@@ -537,6 +615,7 @@ const closeClausulasModal = () => {
   availableClausulas.value = []
   allClausulas.value = []
   selectedClausulaToAdd.value = ''
+  tempoAssinaturaNoModal.value = 1
 }
 
 const saveClausula = async () => {

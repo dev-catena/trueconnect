@@ -249,40 +249,38 @@ const ConnectionDetailScreen: React.FC<Props> = ({ route }) => {
     <CustomScaffold title="Detalhes da Conexão">
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <View style={styles.headerLeft}>
-            <TouchableOpacity
-              style={styles.avatar}
-              onPress={() => photoUrl && setPhotoModalVisible(true)}
-              activeOpacity={photoUrl ? 0.8 : 1}
-              disabled={!photoUrl}
-            >
-              {photoUrl ? (
-                <Image
-                  source={{ uri: photoUrl }}
-                  style={styles.avatarImage}
-                  onError={(error) => {
-                    console.error('Erro ao carregar foto do usuário:', error);
-                  }}
-                />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text style={styles.avatarInitial}>{userInitial}</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            <View style={styles.headerNameBlock}>
-              <Text style={styles.userName}>{userName}</Text>
-              {isAccepted && (
-                <View style={styles.statusBadge}>
-                  <Text style={styles.statusText}>Conectado</Text>
-                </View>
-              )}
-              {isPending && !isRequestedByMe && (
-                <View style={styles.statusBadgePending}>
-                  <Text style={styles.statusTextPending}>Pendente</Text>
-                </View>
-              )}
-            </View>
+          <TouchableOpacity
+            style={styles.avatar}
+            onPress={() => photoUrl && setPhotoModalVisible(true)}
+            activeOpacity={photoUrl ? 0.8 : 1}
+            disabled={!photoUrl}
+          >
+            {photoUrl ? (
+              <Image
+                source={{ uri: photoUrl }}
+                style={styles.avatarImage}
+                onError={(error) => {
+                  console.error('Erro ao carregar foto do usuário:', error);
+                }}
+              />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarInitial}>{userInitial}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <View style={styles.headerNameBlock}>
+            <Text style={styles.userName}>{userName}</Text>
+            {isAccepted && (
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusText}>Conectado</Text>
+              </View>
+            )}
+            {isPending && !isRequestedByMe && (
+              <View style={styles.statusBadgePending}>
+                <Text style={styles.statusTextPending}>Pendente</Text>
+              </View>
+            )}
           </View>
           {isAccepted && (
             <View style={styles.sealsCard}>
@@ -598,7 +596,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   header: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
     marginBottom: 24,
     backgroundColor: CustomColors.white,
@@ -606,23 +604,17 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 16,
   },
-  headerLeft: {
+  headerNameBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
-    minWidth: 0,
-    gap: 12,
-  },
-  headerNameBlock: {
-    flex: 1,
-    minWidth: 0,
-    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   sealsCard: {
+    alignSelf: 'stretch',
     backgroundColor: CustomColors.backgroundPrimaryColor,
     borderRadius: 12,
     padding: 12,
-    width: 140,
     maxHeight: 200,
     borderWidth: 1,
     borderColor: CustomColors.activeGreyed + '33',

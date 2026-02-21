@@ -79,6 +79,13 @@ const ContractCard: React.FC<ContractCardProps> = ({ contract, onPress }) => {
         </View>
       )}
 
+      {contract.status === 'Expirado' && (contract.created_at || contract.dt_inicio) && (
+        <View style={styles.prazoRow}>
+          <Text style={styles.prazoLabel}>Criado em:</Text>
+          <Text style={styles.prazoValue}>{formatDateTime(contract.created_at || contract.dt_inicio)}</Text>
+        </View>
+      )}
+
       <View style={styles.footer}>
         <View style={styles.statusContainer}>
           <Text style={styles.statusLabel}>Status:</Text>

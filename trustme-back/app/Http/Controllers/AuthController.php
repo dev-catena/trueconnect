@@ -75,7 +75,7 @@ class AuthController extends Controller
         // Atualiza contratos expirados (para app)
         if ($request->has('CPF')) {
             try {
-                $this->atualizarContratosExpiradosDoUsuario($user);
+                Contrato::atualizarExpiradosParaUsuario($user);
             } catch (\Exception $e) {
                 \Log::warning('Erro ao atualizar contratos expirados: ' . $e->getMessage());
             }
@@ -201,31 +201,6 @@ class AuthController extends Controller
         ]);
 
         return $this->ok('Senha alterada com sucesso', null, 200);
-    }
-
-    private function atualizarContratosExpiradosDoUsuario(User $usuario)
-    {
-        if (!class_exists(Contrato::class)) {
-            return;
-        }
-
-        $agora = Carbon::now('America/Sao_Paulo');
-
-        $vencidos = Contrato::query()
-            ->whereHas('participantes', fn($q) => $q->where('usuario_id', $usuario->id))
-            ->where('dt_fim', '<=', $agora)
-            ->whereIn('status', ['Ativo', 'Pendente'])
-            ->get()
-            ->groupBy('status');
-
-        if (isset($vencidos['Ativo'])) {
-            Contrato::whereIn('id', $vencidos['Ativo']->pluck('id'))
-                ->update(['status' => 'Concluído']);
-        }
-        if (isset($vencidos['Pendente'])) {
-            Contrato::whereIn('id', $vencidos['Pendente']->pluck('id'))
-                ->update(['status' => 'Expirado']);
-        }
     }
 
     public function register(Request $request)

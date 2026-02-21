@@ -6,7 +6,6 @@ use App\Events\ContratoAtualizado;
 use App\Models\ClausulaTipoContrato;
 use App\Models\Contrato;
 use App\Models\ContratoClausula;
-use App\Models\ParametroSistema;
 use App\Models\ContratoLog;
 use App\Models\ContratoUsuario;
 use App\Models\ContratoUsuarioClausula;
@@ -27,6 +26,13 @@ class ContratoController extends Controller
             $usuario = auth()->user();
             if (!$usuario) {
                 return $this->fail('Usuário não autenticado.', null, 401);
+            }
+
+            // Atualizar contratos expirados antes de listar (inclui prazo de assinatura)
+            try {
+                Contrato::atualizarExpiradosParaUsuario($usuario);
+            } catch (\Exception $e) {
+                \Log::warning('Erro ao atualizar contratos expirados na listagem: ' . $e->getMessage());
             }
 
             // Buscar IDs de contratos que o usuário excluiu para si mesmo (incluindo soft-deleted)
@@ -78,6 +84,7 @@ class ContratoController extends Controller
                     'dt_inicio' => $contrato->dt_inicio,
                     'dt_fim' => $contrato->dt_fim,
                     'dt_prazo_assinatura' => $contrato->dt_prazo_assinatura,
+                    'created_at' => $contrato->created_at?->toIso8601String(),
                     'tipo' => $contrato->tipo ? [
                         'id' => $contrato->tipo->id,
                         'codigo' => $contrato->tipo->codigo,
@@ -134,6 +141,21 @@ class ContratoController extends Controller
 
     public function store(Request $request)
     {
+        $user = auth()->user();
+        if (!$user) {
+            return $this->fail('Usuário não autenticado.', null, 401);
+        }
+
+        // Ausência de plano precede qualquer outra validação
+        if (!$user->hasActivePlan()) {
+            return $this->fail(
+                'Você precisa assinar um plano para criar contratos. Acesse a área de planos e assine um plano.',
+                null,
+                403,
+                ['block_reason' => 'sem_plano']
+            );
+        }
+
         $validated = $request->validate([
             'contrato_tipo_id' => 'required|exists:contrato_tipos,id',
             'descricao' => 'nullable|string',
@@ -151,8 +173,11 @@ class ContratoController extends Controller
         $validated['dt_inicio'] = null;
         $validated['dt_fim'] = null;
 
-        // Prazo para assinatura: parametrizado (default 1 hora)
-        $tempoHoras = ParametroSistema::getValorInt('tempo_assinatura_contrato_horas', 1);
+        // Prazo para assinatura: por tipo de contrato (cada tipo tem seu próprio tempo)
+        $tipoContrato = \App\Models\ContratoTipo::find($validated['contrato_tipo_id']);
+        $tempoHoras = $tipoContrato && $tipoContrato->tempo_assinatura_horas !== null
+            ? (float) $tipoContrato->tempo_assinatura_horas
+            : 1;
         $validated['dt_prazo_assinatura'] = Carbon::now('America/Sao_Paulo')->addHours($tempoHoras);
 
         // Validação de cláusulas
@@ -176,11 +201,6 @@ class ContratoController extends Controller
         $validated['codigo'] = "{$novoNumero}/{$ano}";
 
         // Verificar limite de contratos (considerando plano + compras adicionais)
-        $user = auth()->user();
-        if (!$user) {
-            return $this->fail('Usuário não autenticado.', null, 401);
-        }
-        
         try {
             if (!$user->canCreateContract()) {
                 $limit = $user->getTotalContractsLimit();
@@ -289,6 +309,11 @@ class ContratoController extends Controller
 
     public function showCompleto($id)
     {
+        $usuario = auth()->user();
+        if (!$usuario) {
+            return $this->fail('Usuário não autenticado.', null, 401);
+        }
+
         $contrato = Contrato::with([
             'tipo:id,codigo,descricao',
             'tipo.perguntas:id,contrato_tipo_id,descricao,alternativas,tipo_alternativa',
@@ -299,6 +324,13 @@ class ContratoController extends Controller
         ])->find($id);
 
         if (!$contrato) {
+            return $this->fail('Contrato não encontrado', null, 404);
+        }
+
+        // Verificar se o usuário tem permissão (contratante ou participante ativo)
+        $isContratante = (int) $contrato->contratante_id === (int) $usuario->id;
+        $isParticipante = $contrato->participantes->contains('usuario_id', $usuario->id);
+        if (!$isContratante && !$isParticipante) {
             return $this->fail('Contrato não encontrado', null, 404);
         }
 

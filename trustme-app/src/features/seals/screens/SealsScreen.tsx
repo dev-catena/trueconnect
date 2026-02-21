@@ -356,14 +356,16 @@ const SealsScreen: React.FC = () => {
                   {getStatusBadge(status)}
                 </View>
 
-                {!hasSeal && (
+                {(!hasSeal || status === 'rejeitado' || status === 'expirado') && (
                   <View style={styles.acquireButtonContainer}>
                     <TouchableOpacity
                       style={styles.acquireButton}
                       onPress={() => handleAcquireSeal(selo)}
                     >
                       <SafeIcon name="add-circle" size={16} color={CustomColors.activeColor} />
-                      <Text style={styles.acquireButtonText}>Adquirir Selo</Text>
+                      <Text style={styles.acquireButtonText}>
+                        {status === 'rejeitado' || status === 'expirado' ? 'Solicitar novamente' : 'Adquirir Selo'}
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 )}

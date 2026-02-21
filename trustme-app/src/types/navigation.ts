@@ -34,6 +34,7 @@ export type HomeStackParamList = {
   ConnectionDetail: { connection: Connection };
   Seals: undefined;
   SealAcquisition: { selo: any };
+  SealComplement: { sealRequestId: number; seloName: string; analystFeedback?: string };
   Payment: { selo: any; requestId?: number | string };
   Plans: undefined;
   MySeals: undefined;

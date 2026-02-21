@@ -525,8 +525,9 @@ class UserController extends Controller
                 'selosPendentes.selo',
                 'selosExpirados.selo',
                 'selosCancelados.selo',
-                'userSeals.sealType', // Carregar UserSeal (novo modelo)
-                'sealRequests.sealType', // Solicitações ainda não avaliadas
+                'userSeals.sealType',
+                'sealRequests.sealType',
+                'sealRequests.documents', // Documentos para pendentes
             ]);
 
             $formatar = function($selo) use ($usuario) {
@@ -595,13 +596,23 @@ class UserController extends Controller
                         $rejectionReason = $rejectedRequest?->rejection_reason;
                     }
                 }
+                $srPendente = SealRequest::with('documents')
+                    ->where('user_id', $usuario->id)
+                    ->where('seal_type_id', $userSeal->seal_type_id)
+                    ->whereIn('status', ['pending', 'under_review'])
+                    ->first();
                 $formattedSeal = [
                     'id' => $userSeal->id,
                     'selo_id' => $selo->id,
+                    'seal_request_id' => $srPendente?->id,
+                    'solicitado_em' => $srPendente?->created_at?->toIso8601String(),
+                    'documentos' => $srPendente ? $this->formatarDocumentosPendentes($srPendente) : [],
                     'verificado' => $userSeal->status === 'approved',
                     'expira_em' => $userSeal->expires_at ? $userSeal->expires_at->toIso8601String() : null,
                     'obtido_em' => $userSeal->approved_at ? $userSeal->approved_at->toIso8601String() : null,
                     'rejection_reason' => $rejectionReason,
+                    'analyst_feedback' => $srPendente?->analyst_feedback,
+                    'analyst_feedback_at' => $srPendente?->analyst_feedback_at?->toIso8601String(),
                     'selo' => [
                         'id' => $selo->id,
                         'codigo' => $selo->codigo,
@@ -660,9 +671,14 @@ class UserController extends Controller
             $userSealsPendentes[] = [
                 'id' => 'sr-' . $sealRequest->id,
                 'selo_id' => $selo->id,
+                'seal_request_id' => $sealRequest->id,
+                'solicitado_em' => $sealRequest->created_at?->toIso8601String(),
+                'documentos' => $this->formatarDocumentosPendentes($sealRequest),
                 'verificado' => false,
                 'expira_em' => null,
                 'obtido_em' => null,
+                'analyst_feedback' => $sealRequest->analyst_feedback ?? null,
+                'analyst_feedback_at' => $sealRequest->analyst_feedback_at?->toIso8601String(),
                 'selo' => [
                     'id' => $selo->id,
                     'codigo' => $selo->codigo,
@@ -750,6 +766,31 @@ class UserController extends Controller
             ]);
             return $this->fail('Erro ao recuperar selos do usuário.', null, 500);
         }
+    }
+
+    /**
+     * Formata documentos da solicitação para o solicitante ver/baixar
+     */
+    private function formatarDocumentosPendentes($sealRequest): array
+    {
+        if (!$sealRequest || !$sealRequest->relationLoaded('documents')) {
+            return [];
+        }
+        $requestId = $sealRequest->id;
+        $docs = [];
+        foreach ($sealRequest->documents ?? [] as $doc) {
+            if (!$doc->file_path) continue;
+            $isImage = str_starts_with($doc->mime_type ?? '', 'image/');
+            $docs[] = [
+                'id' => $doc->id,
+                'document_type' => $doc->document_type,
+                'file_name' => $doc->file_name ?? basename($doc->file_path),
+                'mime_type' => $doc->mime_type ?? 'application/octet-stream',
+                'is_image' => $isImage,
+                'path' => "selos/solicitacao/{$requestId}/documentos/{$doc->id}/file",
+            ];
+        }
+        return $docs;
     }
 
     /**

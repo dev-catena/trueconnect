@@ -5,9 +5,10 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { HomeStackParamList } from '../../../types/navigation';
 import { CustomColors } from '../../../core/colors';
-import ApiProvider from '../../../core/api/ApiProvider';
+import { API_BASE_URL } from '../../../utils/constants';
 import SafeIcon from '../../../components/SafeIcon';
 
 type SealAcquisitionScreenRouteProp = RouteProp<HomeStackParamList, 'SealAcquisition'>;
@@ -28,8 +29,12 @@ const SealAcquisitionScreen: React.FC = () => {
   // Documentos do selo: suporta formato legado (string[]) ou novo [{nome, obrigatorio}]
   const documentItems = React.useMemo(() => {
     const raw = selo.documentos_evidencias;
-    if (!Array.isArray(raw) || raw.length === 0) {
+    // Array vazio [] = selo sem documentos obrigatórios. Fallback Frente/Trás só quando null/undefined (legado)
+    if (!Array.isArray(raw)) {
       return [{ nome: 'Frente', obrigatorio: true }, { nome: 'Trás', obrigatorio: true }];
+    }
+    if (raw.length === 0) {
+      return [];
     }
     return raw.map((item: unknown) => {
       if (typeof item === 'string') {
@@ -288,18 +293,15 @@ const SealAcquisitionScreen: React.FC = () => {
     setUploading(true);
 
     try {
-      const api = new ApiProvider();
-      
+      const token = await AsyncStorage.getItem('authToken');
       const formData = new FormData();
-      formData.append('selo_id', selo.id.toString());
-      
-      // Enviar apenas arquivos que foram anexados (obrigatórios ou opcionais)
+
+      // Arquivos primeiro (evita problemas com FormData no React Native)
       documentItems.forEach((doc) => {
         const file = documentFiles[doc.nome];
         if (file) {
           const fieldName = getFieldName(doc.nome);
           const fileName = file.name || `${fieldName}_${Date.now()}.${file.isImage ? 'jpg' : 'pdf'}`;
-          
           formData.append(fieldName, {
             uri: file.uri,
             type: file.type || (file.isImage ? 'image/jpeg' : 'application/pdf'),
@@ -307,7 +309,8 @@ const SealAcquisitionScreen: React.FC = () => {
           } as any);
         }
       });
-      
+      formData.append('selo_id', selo.id.toString());
+
       if (__DEV__) {
         console.log('📤 FormData criado:', {
           selo_id: selo.id,
@@ -319,11 +322,23 @@ const SealAcquisitionScreen: React.FC = () => {
         });
       }
 
-      // Fazer upload dos documentos (timeout aumentado via ApiProvider para FormData)
-      const response = await api.post('selos/solicitar', formData, { timeout: 120000 });
+      // Usar fetch em vez de axios - mais confiável para uploads no React Native
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      const res = await fetch(`${API_BASE_URL}/selos/solicitar`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token.trim()}` } : {}),
+        },
+        body: formData,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const response = await res.json();
 
       if (response.success) {
-        // Navegar para tela de pagamento
         navigation.navigate('Payment', {
           selo,
           requestId: response.data?.id || response.data?.request_id,
@@ -333,7 +348,12 @@ const SealAcquisitionScreen: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Erro ao solicitar selo:', error);
-      Alert.alert('Erro', error.response?.data?.message || 'Não foi possível processar a solicitação.');
+      const msg = error?.message || error?.toString?.() || 'Erro desconhecido';
+      if (msg.includes('abort') || msg.includes('timeout')) {
+        Alert.alert('Erro', 'A requisição demorou muito. Verifique sua conexão e tente novamente.');
+      } else {
+        Alert.alert('Erro', 'Não foi possível processar a solicitação. Tente novamente.');
+      }
     } finally {
       setUploading(false);
     }
@@ -380,7 +400,9 @@ const SealAcquisitionScreen: React.FC = () => {
         {/* Upload de Imagens */}
         <View style={styles.uploadSection}>
           <Text style={styles.sectionTitle}>Documentos Necessários</Text>
-
+          {documentItems.length === 0 ? (
+            <Text style={styles.noDocsText}>Este selo não exige documentos. Clique em Continuar para prosseguir.</Text>
+          ) : null}
           {documentItems.map((doc, index) => {
             const currentFile = documentFiles[doc.nome];
             return (
@@ -537,6 +559,12 @@ const styles = StyleSheet.create({
   },
   uploadSection: {
     padding: 16,
+  },
+  noDocsText: {
+    fontSize: 14,
+    color: CustomColors.activeGreyed,
+    marginBottom: 16,
+    fontStyle: 'italic',
   },
   sectionTitle: {
     fontSize: 18,

@@ -41,8 +41,9 @@
         </div>
       </div>
 
-      <div v-if="!loading && parameters.length === 0" class="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">
-        Nenhum parâmetro configurado.
+      <div v-if="!loading && parameters.length === 0" class="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center">
+        <p class="text-gray-500 mb-2">Nenhum parâmetro global configurado.</p>
+        <p class="text-sm text-gray-600">O tempo para assinatura do contrato é configurado por <strong>Tipo de Contrato</strong>. Acesse o menu <strong>Tipos de Contrato</strong> e clique em <strong>Cláusulas</strong> em cada tipo para definir o prazo.</p>
       </div>
     </div>
   </div>
@@ -68,7 +69,9 @@ const fetchParameters = async () => {
   try {
     const response = await api.get('/admin/parametros-sistema')
     const data = response.data?.result ?? response.data?.data ?? []
-    parameters.value = Array.isArray(data) ? data : []
+    const arr = Array.isArray(data) ? data : []
+    // Tempo para assinatura: configurado por Tipo de Contrato (não global)
+    parameters.value = arr.filter(p => p.chave !== 'tempo_assinatura_contrato_horas')
   } catch (error) {
     console.error('Erro ao carregar parâmetros:', error)
     alert('Erro ao carregar parâmetros. Tente novamente.')

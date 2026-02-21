@@ -16,11 +16,17 @@ class SealRequest extends Model
         'notes',
         'reviewed_by',
         'reviewed_at',
-        'rejection_reason'
+        'rejection_reason',
+        'analyst_feedback',
+        'analyst_feedback_at',
+        'user_response',
+        'user_response_at',
     ];
 
     protected $casts = [
-        'reviewed_at' => 'datetime'
+        'reviewed_at' => 'datetime',
+        'analyst_feedback_at' => 'datetime',
+        'user_response_at' => 'datetime',
     ];
 
     public function user()

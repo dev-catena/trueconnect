@@ -18,6 +18,7 @@ import NewPasswordScreen from '../../features/newPassword/screens/NewPasswordScr
 import NotificationsScreen from '../../features/notifications/screens/NotificationsScreen';
 import SealsScreen from '../../features/seals/screens/SealsScreen';
 import SealAcquisitionScreen from '../../features/seals/screens/SealAcquisitionScreen';
+import SealComplementScreen from '../../features/seals/screens/SealComplementScreen';
 import PaymentScreen from '../../features/seals/screens/PaymentScreen';
 import { RootStackParamList, MainTabParamList, HomeStackParamList, ContractsStackParamList } from '../../types/navigation';
 import ForgotPasswordScreen from '../../features/forgotPassword/screens/ForgotPasswordScreen';
@@ -45,6 +46,7 @@ const HomeStackNavigator = () => {
       <HomeStack.Screen name="ConnectionDetail" component={ConnectionDetailScreen} />
       <HomeStack.Screen name="Seals" component={SealsScreen} />
       <HomeStack.Screen name="SealAcquisition" component={SealAcquisitionScreen} />
+      <HomeStack.Screen name="SealComplement" component={SealComplementScreen} />
       <HomeStack.Screen name="Payment" component={PaymentScreen} />
       <HomeStack.Screen name="Plans" component={PlansScreen} />
       <HomeStack.Screen name="MySeals" component={MySealsScreen} />
