@@ -1,7 +1,8 @@
-// Única configuração do backend - porta 8000
-// Altere API_HOST: 10.0.2.2 (emulador Android) | 10.102.0.103 (dispositivo físico) | localhost (iOS simulator)
-export const API_HOST = '10.102.0.103';
-export const API_PORT = '8000';
+// Única configuração do backend
+// API_HOST: IP do servidor onde está a API (10.102.0.30 = servidor; 10.0.2.2 = emulador Android)
+// API_PORT: 80 = nginx (produção) | 8000 = php artisan serve (dev local)
+export const API_HOST = '10.102.0.30';
+export const API_PORT = '80';
 export const API_BASE_URL = `http://${API_HOST}:${API_PORT}/api`;
 export const BACKEND_BASE_URL = `http://${API_HOST}:${API_PORT}`; // Para URLs de storage/fotos
 

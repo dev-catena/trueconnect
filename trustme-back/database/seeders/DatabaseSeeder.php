@@ -44,6 +44,7 @@ class DatabaseSeeder extends Seeder
             SealRequestsSeeder::class,
             SealDocumentsSeeder::class,
             UserSealsSeeder::class,
+            UserNotificationsSeeder::class,
         ]);
     }
 }

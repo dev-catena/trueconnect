@@ -30,6 +30,7 @@ class ExportDatabaseToSeeders extends Command
     protected array $tableOrder = [
         'users',
         'plans',
+        'user_plan_balances',
         'contrato_tipos',
         'selos',
         'seal_types',
@@ -48,6 +49,7 @@ class ExportDatabaseToSeeders extends Command
         'usuario_conexoes',
         'clausulas',
         'contratos',
+        'contrato_alteracoes',
         'contrato_logs',
         'contrato_usuarios',
         'contrato_clausulas',
@@ -62,6 +64,7 @@ class ExportDatabaseToSeeders extends Command
         'seal_requests',
         'seal_documents',
         'user_seals',
+        'user_notifications',
     ];
 
     public function handle(): int
@@ -154,12 +157,18 @@ class ExportDatabaseToSeeders extends Command
     protected function generateSeederContent(string $table, string $className, $rows): string
     {
         $dataArrays = [];
+        $firstRow = (array) $rows->first();
+        $hasId = array_key_exists('id', $firstRow);
+
         foreach ($rows as $row) {
             $arr = (array) $row;
             $dataArrays[] = $this->arrayToPhpString($arr);
         }
 
         $dataStr = "[\n            " . implode(",\n            ", $dataArrays) . "\n        ]";
+        $insertMethod = $hasId
+            ? "DB::table('{$table}')->updateOrInsert(['id' => \$row['id']], \$row);"
+            : "DB::table('{$table}')->insert(\$row);";
 
         return <<<PHP
 <?php
@@ -176,7 +185,7 @@ class {$className} extends Seeder
         \$data = {$dataStr};
 
         foreach (\$data as \$row) {
-            DB::table('{$table}')->insert(\$row);
+            {$insertMethod}
         }
     }
 }
@@ -211,6 +220,8 @@ PHP;
             return "'" . addslashes(json_encode($value, JSON_UNESCAPED_UNICODE)) . "'";
         }
         $str = (string) $value;
-        return "'" . addslashes(str_replace(["\r", "\n"], ['\r', '\n'], $str)) . "'";
+        // Evitar addslashes em strings JSON (quebraria o formato)
+        $str = str_replace(["\r", "\n", "\\"], ['\r', '\n', '\\\\'], $str);
+        return "'" . str_replace("'", "\\'", $str) . "'";
     }
 }

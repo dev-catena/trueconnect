@@ -1,0 +1,27 @@
+[Unit]
+Description=TrustMe Expo (React Native dev server)
+Documentation=https://docs.expo.dev/
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=darley
+Group=darley
+WorkingDirectory=/home/darley/trueconnect/trustme-app
+
+# Modo não interativo; --lan para aceitar conexões na rede
+Environment=CI=1
+Environment=EXPO_NO_TELEMETRY=1
+Environment=HOME=/home/darley
+
+ExecStart=/home/darley/trueconnect/trustme-app/start-expo-server.sh
+
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trustme-expo
+
+[Install]
+WantedBy=multi-user.target

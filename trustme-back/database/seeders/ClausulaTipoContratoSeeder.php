@@ -53,11 +53,12 @@ class ClausulaTipoContratoSeeder extends Seeder
             ['id' => 47, 'contrato_tipo_id' => 2, 'clausula_id' => 2, 'deleted_at' => null, 'created_at' => '2026-02-10 09:54:52', 'updated_at' => '2026-02-10 09:54:52'],
             ['id' => 48, 'contrato_tipo_id' => 2, 'clausula_id' => 4, 'deleted_at' => null, 'created_at' => '2026-02-10 09:54:59', 'updated_at' => '2026-02-10 09:54:59'],
             ['id' => 49, 'contrato_tipo_id' => 2, 'clausula_id' => 7, 'deleted_at' => null, 'created_at' => '2026-02-10 09:55:06', 'updated_at' => '2026-02-10 09:55:06'],
-            ['id' => 50, 'contrato_tipo_id' => 2, 'clausula_id' => 3, 'deleted_at' => null, 'created_at' => '2026-02-10 09:55:11', 'updated_at' => '2026-02-10 09:55:11']
+            ['id' => 50, 'contrato_tipo_id' => 2, 'clausula_id' => 3, 'deleted_at' => null, 'created_at' => '2026-02-10 09:55:11', 'updated_at' => '2026-02-10 09:55:11'],
+            ['id' => 51, 'contrato_tipo_id' => 1, 'clausula_id' => 16, 'deleted_at' => null, 'created_at' => '2026-02-15 15:52:13', 'updated_at' => '2026-02-15 15:52:13']
         ];
 
         foreach ($data as $row) {
-            DB::table('clausula_tipo_contrato')->insert($row);
+            DB::table('clausula_tipo_contrato')->updateOrInsert(['id' => $row['id']], $row);
         }
     }
 }

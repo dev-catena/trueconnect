@@ -14,7 +14,7 @@ class ParametrosSistemaSeeder extends Seeder
         ];
 
         foreach ($data as $row) {
-            DB::table('parametros_sistema')->insert($row);
+            DB::table('parametros_sistema')->updateOrInsert(['id' => $row['id']], $row);
         }
     }
 }

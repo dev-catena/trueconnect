@@ -31,7 +31,7 @@ class ClausulasSeeder extends Seeder
         ];
 
         foreach ($data as $row) {
-            DB::table('clausulas')->insert($row);
+            DB::table('clausulas')->updateOrInsert(['id' => $row['id']], $row);
         }
     }
 }

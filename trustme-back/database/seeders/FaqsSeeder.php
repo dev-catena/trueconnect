@@ -18,7 +18,7 @@ class FaqsSeeder extends Seeder
         ];
 
         foreach ($data as $row) {
-            DB::table('faqs')->insert($row);
+            DB::table('faqs')->updateOrInsert(['id' => $row['id']], $row);
         }
     }
 }

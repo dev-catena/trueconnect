@@ -1,0 +1,26 @@
+[Unit]
+Description=TrustMe Laravel Reverb (WebSocket)
+Documentation=https://laravel.com/docs/reverb
+After=network.target mysql.service php*-fpm.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=darley
+Group=darley
+WorkingDirectory=/home/darley/trueconnect/trustme-back
+
+# Usa o PHP do sistema (ajuste se necessário: which php)
+ExecStart=/usr/bin/php artisan reverb:start --host=0.0.0.0 --port=8080
+
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=trustme-reverb
+
+# Variáveis de ambiente do Laravel
+Environment=HOME=/home/darley
+
+[Install]
+WantedBy=multi-user.target

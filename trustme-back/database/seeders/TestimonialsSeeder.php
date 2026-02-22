@@ -17,7 +17,7 @@ class TestimonialsSeeder extends Seeder
         ];
 
         foreach ($data as $row) {
-            DB::table('testimonials')->insert($row);
+            DB::table('testimonials')->updateOrInsert(['id' => $row['id']], $row);
         }
     }
 }
