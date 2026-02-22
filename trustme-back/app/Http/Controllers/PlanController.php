@@ -67,6 +67,10 @@ class PlanController extends Controller
             'seals_limit' => 'nullable|integer|min:0',
             'contracts_limit' => 'nullable|integer|min:0',
             'connections_limit' => 'nullable|integer|min:0',
+            'connections_period_allowance' => 'nullable|integer|min:0',
+            'connections_accumulation_limit' => 'nullable|integer|min:0',
+            'contracts_period_allowance' => 'nullable|integer|min:0',
+            'contracts_accumulation_limit' => 'nullable|integer|min:0',
             'features' => 'nullable|array',
         ]);
 
@@ -113,6 +117,10 @@ class PlanController extends Controller
             'seals_limit' => 'nullable|integer|min:0',
             'contracts_limit' => 'nullable|integer|min:0',
             'connections_limit' => 'nullable|integer|min:0',
+            'connections_period_allowance' => 'nullable|integer|min:0',
+            'connections_accumulation_limit' => 'nullable|integer|min:0',
+            'contracts_period_allowance' => 'nullable|integer|min:0',
+            'contracts_accumulation_limit' => 'nullable|integer|min:0',
             'features' => 'nullable|array',
         ]);
 
@@ -125,27 +133,35 @@ class PlanController extends Controller
 
         $data = $request->all();
 
-        // Plano padrão: conexões e contratos devem ser finitos (recorrente)
+        // Plano padrão: conexões e contratos finitos (modo fixo OU acumulativo)
         if ($plan->is_default) {
             $contractsLimit = array_key_exists('contracts_limit', $data)
                 ? ($data['contracts_limit'] === '' || $data['contracts_limit'] === null ? null : (int)$data['contracts_limit'])
                 : $plan->contracts_limit;
+            $contractsPeriod = array_key_exists('contracts_period_allowance', $data)
+                ? ($data['contracts_period_allowance'] === '' || $data['contracts_period_allowance'] === null ? null : (int)$data['contracts_period_allowance'])
+                : $plan->contracts_period_allowance;
             $connectionsLimit = array_key_exists('connections_limit', $data)
                 ? ($data['connections_limit'] === '' || $data['connections_limit'] === null ? null : (int)$data['connections_limit'])
                 : $plan->connections_limit;
+            $connectionsPeriod = array_key_exists('connections_period_allowance', $data)
+                ? ($data['connections_period_allowance'] === '' || $data['connections_period_allowance'] === null ? null : (int)$data['connections_period_allowance'])
+                : $plan->connections_period_allowance;
 
-            if ($contractsLimit === null || $contractsLimit < 1) {
+            $hasContracts = ($contractsLimit !== null && $contractsLimit >= 1) || ($contractsPeriod !== null && $contractsPeriod >= 1);
+            if (!$hasContracts) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'O plano padrão deve ter um limite de contratos definido (não pode ser ilimitado).',
-                    'errors' => ['contracts_limit' => ['O plano padrão exige limite finito de contratos.']]
+                    'message' => 'O plano padrão deve ter limite de contratos (fixo ou modo acumulativo).',
+                    'errors' => ['contracts_limit' => ['Defina limite fixo ou cota por período de contratos.']]
                 ], 422);
             }
-            if ($connectionsLimit === null || $connectionsLimit < 1) {
+            $hasConnections = ($connectionsLimit !== null && $connectionsLimit >= 1) || ($connectionsPeriod !== null && $connectionsPeriod >= 1);
+            if (!$hasConnections) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'O plano padrão deve ter um limite de conexões definido (não pode ser ilimitado).',
-                    'errors' => ['connections_limit' => ['O plano padrão exige limite finito de conexões.']]
+                    'message' => 'O plano padrão deve ter limite de conexões (fixo ou modo acumulativo).',
+                    'errors' => ['connections_limit' => ['Defina limite fixo ou cota por período de conexões.']]
                 ], 422);
             }
         }
@@ -191,6 +207,18 @@ class PlanController extends Controller
         }
         if (array_key_exists('connections_limit', $data)) {
             $dataToUpdate['connections_limit'] = ($data['connections_limit'] === '' || $data['connections_limit'] === null) ? null : (int)$data['connections_limit'];
+        }
+        if (array_key_exists('connections_period_allowance', $data)) {
+            $dataToUpdate['connections_period_allowance'] = ($data['connections_period_allowance'] === '' || $data['connections_period_allowance'] === null) ? null : (int)$data['connections_period_allowance'];
+        }
+        if (array_key_exists('connections_accumulation_limit', $data)) {
+            $dataToUpdate['connections_accumulation_limit'] = ($data['connections_accumulation_limit'] === '' || $data['connections_accumulation_limit'] === null) ? null : (int)$data['connections_accumulation_limit'];
+        }
+        if (array_key_exists('contracts_period_allowance', $data)) {
+            $dataToUpdate['contracts_period_allowance'] = ($data['contracts_period_allowance'] === '' || $data['contracts_period_allowance'] === null) ? null : (int)$data['contracts_period_allowance'];
+        }
+        if (array_key_exists('contracts_accumulation_limit', $data)) {
+            $dataToUpdate['contracts_accumulation_limit'] = ($data['contracts_accumulation_limit'] === '' || $data['contracts_accumulation_limit'] === null) ? null : (int)$data['contracts_accumulation_limit'];
         }
         
         try {

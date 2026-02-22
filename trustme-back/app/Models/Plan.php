@@ -19,6 +19,10 @@ class Plan extends Model
         'seals_limit',
         'contracts_limit',
         'connections_limit',
+        'connections_period_allowance',
+        'connections_accumulation_limit',
+        'contracts_period_allowance',
+        'contracts_accumulation_limit',
         'pending_requests_limit',
         'features',
         'is_active',
@@ -55,6 +59,20 @@ class Plan extends Model
     {
         return is_null($this->seals_limit)
             && is_null($this->contracts_limit)
-            && is_null($this->connections_limit);
+            && is_null($this->connections_limit)
+            && is_null($this->connections_period_allowance)
+            && is_null($this->contracts_period_allowance);
+    }
+
+    /** Plano usa modelo acumulativo para conexões (cota por período + teto). */
+    public function usesConnectionsAccumulation(): bool
+    {
+        return $this->connections_period_allowance !== null;
+    }
+
+    /** Plano usa modelo acumulativo para contratos. */
+    public function usesContractsAccumulation(): bool
+    {
+        return $this->contracts_period_allowance !== null;
     }
 }

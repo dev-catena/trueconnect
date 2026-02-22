@@ -88,6 +88,16 @@
           </span>
         </div>
 
+        <div v-if="plan.connections_period_allowance != null || plan.contracts_period_allowance != null" class="mb-3 p-2 bg-amber-50 rounded text-xs text-amber-800">
+          <strong>Modo acumulativo:</strong>
+          <span v-if="plan.connections_period_allowance != null">
+            {{ plan.connections_period_allowance }} conexões/período (teto {{ plan.connections_accumulation_limit ?? '∞' }})
+          </span>
+          <span v-if="plan.connections_period_allowance != null && plan.contracts_period_allowance != null"> • </span>
+          <span v-if="plan.contracts_period_allowance != null">
+            {{ plan.contracts_period_allowance }} contratos/período (teto {{ plan.contracts_accumulation_limit ?? '∞' }})
+          </span>
+        </div>
         <ul class="space-y-2 text-sm text-gray-600">
           <li v-for="feature in plan.features" :key="feature" class="flex items-center">
             <svg class="h-4 w-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -186,23 +196,67 @@
         <div class="grid grid-cols-2 gap-4 mb-4">
           <FormInput
             id="contracts_limit"
-            label="Limite de Contratos"
+            label="Limite de Contratos (fixo)"
             type="number"
             min="1"
             v-model="planForm.contracts_limit"
             placeholder="Ilimitado (deixe vazio)"
             :error="errors.contracts_limit"
-            :required="editingPlan?.is_default"
+            :required="editingPlan?.is_default && !planForm.contracts_period_allowance"
           />
           <FormInput
             id="connections_limit"
-            label="Limite de Conexões"
+            label="Limite de Conexões (fixo)"
             type="number"
             min="1"
             v-model="planForm.connections_limit"
             placeholder="Ilimitado (deixe vazio)"
             :error="errors.connections_limit"
-            :required="editingPlan?.is_default"
+            :required="editingPlan?.is_default && !planForm.connections_period_allowance"
+          />
+        </div>
+        
+        <p class="text-sm text-gray-600 mb-2">
+          <strong>Modo acumulativo</strong> (opcional): cota por período + teto de acúmulo. Se preenchido, o limite fixo acima é ignorado.
+        </p>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <FormInput
+            id="connections_period_allowance"
+            label="Conexões por período"
+            type="number"
+            min="0"
+            v-model="planForm.connections_period_allowance"
+            placeholder="Ex: 2 (deixe vazio para modo fixo)"
+            :error="errors.connections_period_allowance"
+          />
+          <FormInput
+            id="connections_accumulation_limit"
+            label="Teto de acúmulo conexões"
+            type="number"
+            min="0"
+            v-model="planForm.connections_accumulation_limit"
+            placeholder="Ex: 6 (máx. que pode acumular)"
+            :error="errors.connections_accumulation_limit"
+          />
+        </div>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <FormInput
+            id="contracts_period_allowance"
+            label="Contratos por período"
+            type="number"
+            min="0"
+            v-model="planForm.contracts_period_allowance"
+            placeholder="Ex: 2"
+            :error="errors.contracts_period_allowance"
+          />
+          <FormInput
+            id="contracts_accumulation_limit"
+            label="Teto de acúmulo contratos"
+            type="number"
+            min="0"
+            v-model="planForm.contracts_accumulation_limit"
+            placeholder="Ex: 6"
+            :error="errors.contracts_accumulation_limit"
           />
         </div>
         
@@ -305,6 +359,10 @@ const planForm = reactive({
   one_time_price: '',
   contracts_limit: '',
   connections_limit: '',
+  connections_period_allowance: '',
+  connections_accumulation_limit: '',
+  contracts_period_allowance: '',
+  contracts_accumulation_limit: '',
   features: [''],
   active: true,
   featured: false
@@ -337,6 +395,10 @@ const fetchPlans = async () => {
         : null,
       contracts_limit: plan.contracts_limit != null ? plan.contracts_limit : null,
       connections_limit: plan.connections_limit != null ? plan.connections_limit : null,
+      connections_period_allowance: plan.connections_period_allowance != null ? plan.connections_period_allowance : null,
+      connections_accumulation_limit: plan.connections_accumulation_limit != null ? plan.connections_accumulation_limit : null,
+      contracts_period_allowance: plan.contracts_period_allowance != null ? plan.contracts_period_allowance : null,
+      contracts_accumulation_limit: plan.contracts_accumulation_limit != null ? plan.contracts_accumulation_limit : null,
       features: plan.features || [],
       active: plan.is_active,
       is_default: plan.is_default || false,
@@ -393,6 +455,10 @@ const editPlan = (plan) => {
   planForm.one_time_price = plan.one_time_price ?? ''
   planForm.contracts_limit = plan.contracts_limit != null ? plan.contracts_limit : ''
   planForm.connections_limit = plan.connections_limit != null ? plan.connections_limit : ''
+  planForm.connections_period_allowance = plan.connections_period_allowance != null ? plan.connections_period_allowance : ''
+  planForm.connections_accumulation_limit = plan.connections_accumulation_limit != null ? plan.connections_accumulation_limit : ''
+  planForm.contracts_period_allowance = plan.contracts_period_allowance != null ? plan.contracts_period_allowance : ''
+  planForm.contracts_accumulation_limit = plan.contracts_accumulation_limit != null ? plan.contracts_accumulation_limit : ''
   planForm.features = Array.isArray(plan.features) && plan.features.length ? [...plan.features] : ['']
   planForm.active = plan.active
   planForm.featured = plan.featured
@@ -410,7 +476,7 @@ const closeModal = () => {
       planForm[key] = true
     } else if (key === 'featured') {
       planForm[key] = false
-    } else if (key === 'contracts_limit' || key === 'connections_limit') {
+    } else if (['contracts_limit', 'connections_limit', 'connections_period_allowance', 'connections_accumulation_limit', 'contracts_period_allowance', 'contracts_accumulation_limit'].includes(key)) {
       planForm[key] = ''
     } else {
       planForm[key] = ''
@@ -452,6 +518,10 @@ const savePlan = async () => {
       one_time_price: editingPlan.value?.is_default ? null : parsePrice(planForm.one_time_price),
       contracts_limit: planForm.contracts_limit === '' ? null : parseInt(planForm.contracts_limit) || null,
       connections_limit: planForm.connections_limit === '' ? null : parseInt(planForm.connections_limit) || null,
+      connections_period_allowance: planForm.connections_period_allowance === '' ? null : parseInt(planForm.connections_period_allowance) || null,
+      connections_accumulation_limit: planForm.connections_accumulation_limit === '' ? null : parseInt(planForm.connections_accumulation_limit) || null,
+      contracts_period_allowance: planForm.contracts_period_allowance === '' ? null : parseInt(planForm.contracts_period_allowance) || null,
+      contracts_accumulation_limit: planForm.contracts_accumulation_limit === '' ? null : parseInt(planForm.contracts_accumulation_limit) || null,
       features: planForm.features.filter(f => f && String(f).trim() !== ''),
       is_active: planForm.active
     }

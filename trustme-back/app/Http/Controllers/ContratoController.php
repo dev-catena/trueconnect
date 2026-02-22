@@ -13,6 +13,7 @@ use App\Models\ContratoUsuarioPergunta;
 use App\Models\ContratoAlteracao;
 use App\Models\Pergunta;
 use App\Models\User;
+use App\Models\UserPlanBalance;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -218,8 +219,11 @@ class ContratoController extends Controller
                     );
                 }
                 
+                $currentDisplay = $user->activeSubscription?->plan?->usesContractsAccumulation()
+                    ? ($user->getContractsBalance() ?? 0)
+                    : $current;
                 return $this->fail(
-                    "Você atingiu o limite de contratos ({$current}/{$limit}). " .
+                    "Você atingiu o limite de contratos ({$currentDisplay}/{$limit}). " .
                     "Contrate mais contratos adicionais ou faça upgrade do seu plano para criar novos contratos.",
                     null,
                     403
@@ -237,6 +241,11 @@ class ContratoController extends Controller
 
         try {
             $contrato = Contrato::create($validated);
+
+            // Débito de saldo (modo acumulativo): contratante consome 1 contrato
+            if ($user->activeSubscription?->plan?->usesContractsAccumulation()) {
+                UserPlanBalance::debitContract($user);
+            }
 
             foreach ($validated['clausulas'] as $clausulaId) {
                 ContratoClausula::create([

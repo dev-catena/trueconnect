@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\UserNotification;
+use App\Models\UserPlanBalance;
 use App\Models\UsuarioConexao;
 use App\Events\ConexaoCriada;
 use App\Events\ConexaoAtualizada;
@@ -124,6 +125,14 @@ class UsuarioConexaoController extends Controller
             'aceito' => null,
         ]);
 
+        // Débito de saldo (modo acumulativo): ambas as partes consomem 1 conexão
+        if ($usuario->activeSubscription?->plan?->usesConnectionsAccumulation()) {
+            UserPlanBalance::debitConnection($usuario);
+        }
+        if ($destinatario->activeSubscription?->plan?->usesConnectionsAccumulation()) {
+            UserPlanBalance::debitConnection($destinatario);
+        }
+
         // Disparar evento de broadcast
         event(new ConexaoCriada($conexao));
 
@@ -180,10 +189,19 @@ class UsuarioConexaoController extends Controller
             event(new ConexaoAtualizada($conexao, 'aceita'));
             return $this->ok('Conexão aceita com sucesso.');
         } else {
+            $solicitante = $conexao->solicitante;
+            $destinatarioUser = $conexao->destinatario;
             $solicitanteId = $conexao->solicitante_id;
             $destinatarioId = $conexao->destinatario_id;
             $conexaoId = $conexao->id;
             $conexao->forceDelete();
+            // Crédito de saldo (modo acumulativo): devolver 1 conexão a cada parte
+            if ($solicitante && $solicitante->activeSubscription?->plan?->usesConnectionsAccumulation()) {
+                UserPlanBalance::creditConnection($solicitante);
+            }
+            if ($destinatarioUser && $destinatarioUser->activeSubscription?->plan?->usesConnectionsAccumulation()) {
+                UserPlanBalance::creditConnection($destinatarioUser);
+            }
             // Disparar evento de broadcast
             event(new ConexaoRemovida($conexaoId, $solicitanteId, $destinatarioId));
             return $this->ok('Conexão recusada com sucesso.');
@@ -272,13 +290,23 @@ class UsuarioConexaoController extends Controller
                 return $this->fail('Conexão não encontrada.', null, 404);
             }
 
+            $solicitante = $conexao->solicitante;
+            $destinatarioUser = $conexao->destinatario;
             $solicitanteId = $conexao->solicitante_id;
             $destinatarioId = $conexao->destinatario_id;
             $conexaoId = $conexao->id;
-            
+
             // forceDelete para garantir que a conexão seja removida para ambos os usuários
             // (soft delete poderia causar inconsistência em cenários de cache/ polling)
             $conexao->forceDelete();
+
+            // Crédito de saldo (modo acumulativo): devolver 1 conexão a cada parte
+            if ($solicitante && $solicitante->activeSubscription?->plan?->usesConnectionsAccumulation()) {
+                UserPlanBalance::creditConnection($solicitante);
+            }
+            if ($destinatarioUser && $destinatarioUser->activeSubscription?->plan?->usesConnectionsAccumulation()) {
+                UserPlanBalance::creditConnection($destinatarioUser);
+            }
 
             // Disparar evento de broadcast (não falhar a operação se Reverb/Redis estiver indisponível)
             try {

@@ -243,10 +243,16 @@ class User extends Authenticatable
         return $this->hasMany(AdditionalPurchase::class);
     }
 
+    public function planBalance()
+    {
+        return $this->hasOne(UserPlanBalance::class);
+    }
+
     /**
      * Retorna o limite total de contratos (plano + compras adicionais)
      * null = ilimitado (ex: plano Infinit)
      * 0 = sem plano ativo que permita contratos
+     * No modo acumulativo (contracts_period_allowance), o "limite" exibido é o teto de acúmulo.
      */
     public function getTotalContractsLimit()
     {
@@ -256,7 +262,14 @@ class User extends Authenticatable
             return $additionalContracts > 0 ? $additionalContracts : 0;
         }
 
-        $planLimit = $activeSubscription->plan->contracts_limit; // null = ilimitado no Infinit
+        $plan = $activeSubscription->plan;
+
+        // Modo acumulativo: retorna o teto de acúmulo (para exibição) ou null se ilimitado
+        if ($plan->usesContractsAccumulation()) {
+            return $plan->contracts_accumulation_limit;
+        }
+
+        $planLimit = $plan->contracts_limit;
         if ($planLimit === null) {
             return null; // Ilimitado
         }
@@ -269,6 +282,7 @@ class User extends Authenticatable
      * Retorna o limite total de conexões (plano + compras adicionais)
      * null = ilimitado
      * Sem assinatura ativa e sem compras de conexões = 0 (nenhuma conexão permitida)
+     * No modo acumulativo (connections_period_allowance), retorna o teto de acúmulo para exibição.
      */
     public function getTotalConnectionsLimit()
     {
@@ -282,12 +296,38 @@ class User extends Authenticatable
         if (!$activeSubscription) {
             return $additionalConnections > 0 ? $additionalConnections : 0;
         }
-        // Plano ilimitado (connections_limit = null): sem restrição
+        // Modo acumulativo: retorna teto de acúmulo (para exibição)
+        if ($plan->usesConnectionsAccumulation()) {
+            return $plan->connections_accumulation_limit;
+        }
+        // Plano ilimitado
         if ($planLimit === null) {
             return null;
         }
 
         return $planLimit + $additionalConnections;
+    }
+
+    /** Saldo de conexões (modo acumulativo). Retorna null se não usar acumulação. */
+    public function getConnectionsBalance(): ?int
+    {
+        $plan = $this->activeSubscription?->plan;
+        if (!$plan || !$plan->usesConnectionsAccumulation()) {
+            return null;
+        }
+        $balance = $this->planBalance;
+        return $balance ? (int) $balance->connections_balance : 0;
+    }
+
+    /** Saldo de contratos (modo acumulativo). Retorna null se não usar acumulação. */
+    public function getContractsBalance(): ?int
+    {
+        $plan = $this->activeSubscription?->plan;
+        if (!$plan || !$plan->usesContractsAccumulation()) {
+            return null;
+        }
+        $balance = $this->planBalance;
+        return $balance ? (int) $balance->contracts_balance : 0;
     }
 
     /**
@@ -323,6 +363,11 @@ class User extends Authenticatable
      */
     public function hasConnectionSlotAvailable(): bool
     {
+        $plan = $this->activeSubscription?->plan;
+        // Modo acumulativo: verifica saldo
+        if ($plan && $plan->usesConnectionsAccumulation()) {
+            return ($this->getConnectionsBalance() ?? 0) > 0;
+        }
         $limit = $this->getTotalConnectionsLimit();
         if ($limit === null) {
             return true;
@@ -349,13 +394,17 @@ class User extends Authenticatable
 
     /**
      * Verifica se o usuário pode criar mais contratos.
-     * Saldo = franquia + compras adicionais - contratos assinados (excluindo expirados)
+     * Modo acumulativo: saldo > 0.
+     * Modo fixo: franquia + compras adicionais - contratos assinados.
      */
     public function canCreateContract()
     {
+        $plan = $this->activeSubscription?->plan;
+        if ($plan && $plan->usesContractsAccumulation()) {
+            return ($this->getContractsBalance() ?? 0) > 0;
+        }
+
         $limit = $this->getTotalContractsLimit();
-        
-        // Se ilimitado, sempre pode criar
         if ($limit === null) {
             return true;
         }
@@ -366,10 +415,26 @@ class User extends Authenticatable
 
     /**
      * Verifica se o usuário pode solicitar nova conexão.
-     * Regra única: limite de conexões (pendentes + ativas) não pode ser excedido.
+     * Modo acumulativo: saldo > 0.
+     * Modo fixo: limite de conexões (pendentes + ativas) não excedido.
      */
     public function canSendConnectionRequest(): array
     {
+        $plan = $this->activeSubscription?->plan;
+        if ($plan && $plan->usesConnectionsAccumulation()) {
+            $balance = $this->getConnectionsBalance() ?? 0;
+            if ($balance < 1) {
+                return [
+                    'can' => false,
+                    'block_reason' => 'conexoes',
+                    'resource' => 'conexões',
+                    'current' => $balance,
+                    'limit' => $plan->connections_accumulation_limit,
+                ];
+            }
+            return ['can' => true, 'block_reason' => null];
+        }
+
         $limit = $this->getTotalConnectionsLimit();
         $count = $this->getConnectionsCount();
 
