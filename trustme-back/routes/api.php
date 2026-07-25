@@ -43,6 +43,28 @@ use App\Http\Controllers\ParametroSistemaController;
 |--------------------------------------------------------------------------
 */
 
+// Health check (público)
+Route::get('/health', function () {
+    $dbOk = false;
+    try {
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        $dbOk = true;
+    } catch (\Throwable $e) {
+        $dbOk = false;
+    }
+
+    $status = $dbOk ? 'ok' : 'degraded';
+    $http = $dbOk ? 200 : 503;
+
+    return response()->json([
+        'status' => $status,
+        'app' => config('app.name'),
+        'env' => config('app.env'),
+        'time' => now()->toIso8601String(),
+        'database' => $dbOk ? 'up' : 'down',
+    ], $http);
+});
+
 // Rotas públicas - Web (email)
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/register', [AuthController::class, 'register']);
