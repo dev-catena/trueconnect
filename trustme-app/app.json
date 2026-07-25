@@ -4,7 +4,7 @@
     "slug": "trustme-app",
     "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/images/trustme-logo.png",
+    "icon": "./assets/images/icon-1024.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/trustme-logo.png",
@@ -19,7 +19,12 @@
       "bundleIdentifier": "com.catenasystem.trustme",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Este app precisa acessar suas fotos para fazer upload de documentos.",
-        "NSCameraUsageDescription": "Este app precisa acessar a câmera para tirar fotos de documentos."
+        "NSCameraUsageDescription": "Este app precisa acessar a câmera para tirar fotos de documentos.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
       }
     },
     "android": {
@@ -39,8 +44,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "trustme-app"
+        "projectId": "c0a4b8bf-f7ee-49a3-88c3-2beb6cd84909"
       }
-    }
+    },
+    "owner": "zontec"
   }
 }
