@@ -240,20 +240,13 @@ class AuthController extends Controller
         // Adiciona campos opcionais se fornecidos
         if ($request->has('dt_nascimento') && $request->dt_nascimento) {
             try {
-                // Converte para Carbon e depois para formato timestamp do MySQL
-                // Usa toDateTimeString() que retorna o formato correto Y-m-d H:i:s
-                $date = Carbon::parse($request->dt_nascimento)->startOfDay();
-                $userData['dt_nascimento'] = $date->toDateTimeString();
+                // DATE (não TIMESTAMP): aceita nascimentos antes de 1970
+                $userData['dt_nascimento'] = Carbon::parse($request->dt_nascimento)->toDateString();
             } catch (\Exception $e) {
-                // Se falhar o parse, tenta extrair apenas a data da string ISO e adicionar hora
-                $dateStr = $request->dt_nascimento;
-                if (strpos($dateStr, 'T') !== false) {
-                    $dateParts = explode('T', $dateStr);
-                    $dateOnly = $dateParts[0];
-                    $userData['dt_nascimento'] = $dateOnly . ' 00:00:00';
-                } else {
-                    $userData['dt_nascimento'] = $dateStr . ' 00:00:00';
-                }
+                $dateStr = (string) $request->dt_nascimento;
+                $userData['dt_nascimento'] = strpos($dateStr, 'T') !== false
+                    ? explode('T', $dateStr)[0]
+                    : substr($dateStr, 0, 10);
             }
         }
         if ($request->has('cep')) {
